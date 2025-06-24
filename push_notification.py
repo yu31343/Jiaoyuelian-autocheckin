@@ -17,7 +17,7 @@ def send_notification(message):
 
     data = {
         "token": token,
-        "title": "NatPierce 签到结果",
+        "title": message, # Set title to be the same as the message
         "content": message,
     }
 
