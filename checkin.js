@@ -85,7 +85,7 @@ async function autoCheckIn() {
 
         // 再次检查是否有“服务尚未到期，无需签到”的提示
         const currentStatus = await page.evaluate(() => {
-            const messageElement = document.querySelector('.van-toast__text'); // 假设提示文本的通用选择器
+            const messageElement = document.querySelector('div.layui-layer-content'); // 根据用户提供的信息更新提示文本选择器
             return messageElement ? messageElement.innerText : 'No toast message found.';
         });
         console.log(`Check-in result/toast: ${currentStatus}`);
