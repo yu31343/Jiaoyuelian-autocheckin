@@ -80,7 +80,7 @@ async function autoCheckIn() {
         console.log('Clicking check-in button...');
         await page.click(checkinButtonSelector);
         // 签到后通常会有弹窗或页面变化，等待一下
-        await page.waitForTimeout(3000); // 等待3秒，观察弹窗或提示
+            await new Promise(resolve => setTimeout(resolve, 3000)); // 等待3秒，观察弹窗或提示
         console.log('Check-in button clicked.');
 
         // 再次检查是否有“服务尚未到期，无需签到”的提示
