@@ -32,7 +32,7 @@ async function autoCheckIn() {
         // 确保页面加载完成，防止元素找不到
         await page.waitForSelector('input[placeholder="请输入手机号或邮箱"]', { timeout: 30000 });
         await page.waitForSelector('input[placeholder="请输入密码"]', { timeout: 30000 });
-        await page.waitForSelector('button.van-button--normal', { timeout: 30000 }); // 假设登录按钮有这个class
+        await page.waitForSelector('div.login_btn', { timeout: 30000 }); // 根据用户提供的信息更新登录按钮选择器
 
         console.log('Typing username...');
         await page.type('input[placeholder="请输入手机号或邮箱"]', USERNAME);
@@ -49,7 +49,7 @@ async function autoCheckIn() {
         // 根据你截图，登录按钮可能是一个具有文本"登录"的div或button
         // 如果是button，可以是 page.click('button:has-text("登录")');
         // 如果是一个通用的元素，比如带有van-button--normal class，就点击它
-        await page.click('button.van-button--normal'); // 假设是van-button--normal
+        await page.click('div.login_btn'); // 根据用户提供的信息更新登录按钮选择器
 
         console.log('Waiting for navigation after login...');
         await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }); // 等待登录后的页面跳转
