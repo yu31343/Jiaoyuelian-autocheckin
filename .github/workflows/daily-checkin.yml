@@ -28,11 +28,15 @@ jobs:
         NATPIERCE_PASSWORD: ${{ secrets.NATPIERCE_PASSWORD }} # 从GitHub Secrets获取密码
       run: node checkin.js # 运行你的签到脚本
 
-    - name: Upload screenshot if exists
-      uses: actions/upload-artifact@v4
+    - name: Set up Python
+      uses: actions/setup-python@v4
       with:
-        name: checkin-screenshot
-        path: |
-          checkin_result.png
-          error_screenshot.png
-        if-no-files-found: ignore # 如果文件不存在，不报错
+        python-version: '3.x' # Use the latest Python 3.x version
+
+    - name: Install Python dependencies
+      run: pip install requests
+
+    - name: Run push notification script
+      env:
+        token: ${{ secrets.PUSHPLUS_TOKEN }} # 从GitHub Secrets获取PushPlus token
+      run: python push_notification.py
