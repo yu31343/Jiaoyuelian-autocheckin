@@ -1,0 +1,38 @@
+# .github/workflows/daily-checkin.yml
+name: Daily NatPierce Check-in
+
+on:
+  workflow_dispatch: # 允许手动触发
+  schedule:
+    - cron: '0 0 * * *' # 每天UTC时间午夜0点运行 (根据需要调整，例如 '0 8 * * *' 是UTC 8点)
+
+jobs:
+  check-in:
+    runs-on: ubuntu-latest # 使用最新的Ubuntu环境
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3 # 检出你的仓库代码
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18' # 或者你希望的Node.js版本
+
+    - name: Install dependencies
+      run: npm install puppeteer # 安装puppeteer库
+
+    - name: Run check-in script
+      env:
+        NATPIERCE_USERNAME: ${{ secrets.NATPIERCE_USERNAME }} # 从GitHub Secrets获取用户名
+        NATPIERCE_PASSWORD: ${{ secrets.NATPIERCE_PASSWORD }} # 从GitHub Secrets获取密码
+      run: node checkin.js # 运行你的签到脚本
+
+    - name: Upload screenshot if exists
+      uses: actions/upload-artifact@v3
+      with:
+        name: checkin-screenshot
+        path: |
+          checkin_result.png
+          error_screenshot.png
+        if-no-files-found: ignore # 如果文件不存在，不报错
