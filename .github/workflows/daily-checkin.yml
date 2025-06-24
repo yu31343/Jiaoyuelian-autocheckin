@@ -37,6 +37,9 @@ jobs:
       run: pip install requests
 
     - name: Run push notification script
+      id: push_notification_step # Add an ID to this step to capture its output
+      run: |
+        CHECKIN_RESULT=$(node checkin.js | grep "CHECKIN_RESULT:" | sed 's/CHECKIN_RESULT: //')
+        python push_notification.py "$CHECKIN_RESULT"
       env:
         token: ${{ secrets.PUSHPLUS_TOKEN }} # 从GitHub Secrets获取PushPlus token
-      run: python push_notification.py
