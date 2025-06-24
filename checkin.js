@@ -71,34 +71,24 @@ async function autoCheckIn() {
         // 3. 一个具有特定id的元素： `#checkin-button`
         // 你需要在登录后的签到页面上检查HTML结构来获取最准确的选择器。
         // 这里我假设它是一个包含"签到"文本的按钮或者带有特定class的按钮
-        const checkinButtonSelector = 'button.van-button--info'; // 根据van-button--info通常是蓝色的假设
-        // 也可以尝试：`button:has-text("签到")` 如果文本是稳定的
+        const checkinButtonSelector = '#qiandao'; // 根据用户提供的信息更新签到按钮选择器
         await page.waitForSelector(checkinButtonSelector, { timeout: 30000 });
 
         // 检查签到按钮是否可点击（例如，是否被禁用）
-        const isButtonDisabled = await page.$eval(checkinButtonSelector, button => button.disabled);
-        if (isButtonDisabled) {
-            console.log('Check-in button is disabled. Likely already checked in or service not due.');
-            // 可以尝试获取并打印提示信息
-            const tipMessage = await page.evaluate(() => {
-                const el = document.querySelector('.some-tip-message-selector'); // 假设提示信息的选择器
-                return el ? el.innerText : 'No specific tip message found.';
-            });
-            console.log(`Tip: ${tipMessage}`);
-        } else {
-            console.log('Clicking check-in button...');
-            await page.click(checkinButtonSelector);
-            // 签到后通常会有弹窗或页面变化，等待一下
-            await page.waitForTimeout(3000); // 等待3秒，观察弹窗或提示
-            console.log('Check-in button clicked.');
+        // 注意：由于现在是div，可能没有disabled属性，暂时移除disabled判断，直接点击。
+        // 如果需要更严谨的判断，需要用户提供更多信息来识别签到状态。
+        console.log('Clicking check-in button...');
+        await page.click(checkinButtonSelector);
+        // 签到后通常会有弹窗或页面变化，等待一下
+        await page.waitForTimeout(3000); // 等待3秒，观察弹窗或提示
+        console.log('Check-in button clicked.');
 
-            // 再次检查是否有“服务尚未到期，无需签到”的提示
-            const currentStatus = await page.evaluate(() => {
-                const messageElement = document.querySelector('.van-toast__text'); // 假设提示文本的通用选择器
-                return messageElement ? messageElement.innerText : 'No toast message found.';
-            });
-            console.log(`Check-in result/toast: ${currentStatus}`);
-        }
+        // 再次检查是否有“服务尚未到期，无需签到”的提示
+        const currentStatus = await page.evaluate(() => {
+            const messageElement = document.querySelector('.van-toast__text'); // 假设提示文本的通用选择器
+            return messageElement ? messageElement.innerText : 'No toast message found.';
+        });
+        console.log(`Check-in result/toast: ${currentStatus}`);
 
         console.log('Taking a screenshot...');
         await page.screenshot({ path: 'checkin_result.png' });
