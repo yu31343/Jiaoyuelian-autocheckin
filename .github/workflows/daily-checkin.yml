@@ -38,7 +38,7 @@ jobs:
         token: ${{ secrets.PUSHPLUS_TOKEN }} # From GitHub Secrets for PushPlus token
       run: |
         # Run checkin.js and capture its output
-        CHECKIN_OUTPUT=$(node checkin.js)
+        CHECKIN_OUTPUT=$(node github-automation/checkin.js)
         CHECKIN_RESULT=$(echo "$CHECKIN_OUTPUT" | awk -F'CHECKIN_RESULT: ' '/CHECKIN_RESULT:/ {print $2}')
 
         # Print the full output of checkin.js for debugging
@@ -49,4 +49,4 @@ jobs:
         echo "Extracted CHECKIN_RESULT: $CHECKIN_RESULT"
 
         # Run push_notification.py with the extracted result
-        python push_notification.py "$CHECKIN_RESULT"
+        python github-automation/push_notification.py "$CHECKIN_RESULT"
