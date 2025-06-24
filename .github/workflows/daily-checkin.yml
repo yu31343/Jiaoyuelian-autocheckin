@@ -39,7 +39,7 @@ jobs:
       run: |
         # Run checkin.js and capture its output
         CHECKIN_OUTPUT=$(node checkin.js)
-        CHECKIN_RESULT=$(echo "$CHECKIN_OUTPUT" | grep "CHECKIN_RESULT:" | sed 's/CHECKIN_RESULT: //')
+        CHECKIN_RESULT=$(echo "$CHECKIN_OUTPUT" | awk -F'CHECKIN_RESULT: ' '/CHECKIN_RESULT:/ {print $2}')
 
         # Print the full output of checkin.js for debugging
         echo "Full checkin.js output:"

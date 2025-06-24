@@ -84,27 +84,19 @@ async function autoCheckIn() {
         console.log('Check-in button clicked.');
 
         // 再次检查是否有“服务尚未到期，无需签到”的提示
-        const currentStatus = await page.evaluate(() => {
-            const messageElement = document.querySelector('div.layui-layer-content'); // 根据用户提供的信息更新提示文本选择器
-            return messageElement ? messageElement.innerText : 'No toast message found.';
-        });
+            const currentStatus = await page.evaluate(() => {
+                const messageElement = document.querySelector('div.layui-layer-content'); // 根据用户提供的信息更新提示文本选择器
+                return messageElement ? messageElement.innerText : 'No toast message found.';
+            });
         console.log(`Check-in result/toast: ${currentStatus}`);
 
-        console.log('Taking a screenshot...');
-        await page.screenshot({ path: 'checkin_result.png' });
-        console.log('Screenshot saved as checkin_result.png');
+        console.log(`CHECKIN_RESULT: ${currentStatus}`); // Output the check-in result for the workflow
 
     } catch (error) {
         console.error('An error occurred during automation:', error);
-        // 如果出现错误，也尝试截屏，以便调试
-        if (browser) {
-            const page = (await browser.pages())[0]; // 获取当前页面
-            if (page) {
-                await page.screenshot({ path: 'error_screenshot.png' });
-                console.log('Error screenshot saved as error_screenshot.png');
-            }
-        }
-        process.exit(1); // 退出并带有错误码
+        // If an error occurs, print the error but do not exit with an error code
+        // This allows the push notification script to still run with a potential error message
+        // process.exit(1); // Do not exit with error code here, let the workflow continue
     } finally {
         if (browser) {
             await browser.close();
