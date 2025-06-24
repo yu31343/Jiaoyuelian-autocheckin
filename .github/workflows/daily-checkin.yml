@@ -19,14 +19,8 @@ jobs:
       with:
         node-version: '18' # 或者你希望的Node.js版本
 
-    - name: Install dependencies
+    - name: Install Node.js dependencies
       run: npm install puppeteer # 安装puppeteer库
-
-    - name: Run check-in script
-      env:
-        NATPIERCE_USERNAME: ${{ secrets.NATPIERCE_USERNAME }} # 从GitHub Secrets获取用户名
-        NATPIERCE_PASSWORD: ${{ secrets.NATPIERCE_PASSWORD }} # 从GitHub Secrets获取密码
-      run: node checkin.js # 运行你的签到脚本
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -36,12 +30,23 @@ jobs:
     - name: Install Python dependencies
       run: pip install requests
 
-    - name: Run push notification script
-      id: push_notification_step # Add an ID to this step to capture its output
+    - name: Run check-in and push notification script
+      id: checkin_and_notify_step # Renamed ID for clarity
       env:
         NATPIERCE_USERNAME: ${{ secrets.NATPIERCE_USERNAME }} # Pass username to checkin.js
         NATPIERCE_PASSWORD: ${{ secrets.NATPIERCE_PASSWORD }} # Pass password to checkin.js
-        token: ${{ secrets.PUSHPLUS_TOKEN }} # 从GitHub Secrets获取PushPlus token
+        token: ${{ secrets.PUSHPLUS_TOKEN }} # From GitHub Secrets for PushPlus token
       run: |
-        CHECKIN_RESULT=$(node checkin.js | grep "CHECKIN_RESULT:" | sed 's/CHECKIN_RESULT: //')
+        # Run checkin.js and capture its output
+        CHECKIN_OUTPUT=$(node checkin.js)
+        CHECKIN_RESULT=$(echo "$CHECKIN_OUTPUT" | grep "CHECKIN_RESULT:" | sed 's/CHECKIN_RESULT: //')
+
+        # Print the full output of checkin.js for debugging
+        echo "Full checkin.js output:"
+        echo "$CHECKIN_OUTPUT"
+
+        # Print the extracted result
+        echo "Extracted CHECKIN_RESULT: $CHECKIN_RESULT"
+
+        # Run push_notification.py with the extracted result
         python push_notification.py "$CHECKIN_RESULT"
