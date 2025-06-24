@@ -59,7 +59,7 @@
 工作流可以通过以下方式触发：
 
 *   **手动触发**: 在你的 GitHub 仓库中，导航到 `Actions` 选项卡，找到 `Daily NatPierce Check-in` 工作流，点击 `Run workflow` 按钮。
-*   **定时触发**: 脚本会根据 `.github/workflows/daily-checkin.yml` 中定义的 `cron` 表达式每天自动运行（默认为 UTC 时间午夜0点）。你可以根据需要调整 `cron` 表达式。
+*   **定时触发**: 脚本会根据 `.github/workflows/daily-checkin.yml` 中定义的 `cron` 表达式每天自动运行。**请务必根据你账户的“下次可签到时间”和“服务到期时间”来调整 `cron` 表达式，确保脚本在可签到时间之后且服务到期之前运行。** `cron` 表达式是基于 **UTC 时间** 的。
 
 ### 5. 调试
 
