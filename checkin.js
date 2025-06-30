@@ -154,8 +154,9 @@ async function autoCheckIn() {
 
         // Check if captcha appeared and handle it
         try {
-            await page.waitForSelector('#captcha', { visible: true, timeout: 10000 });
-            console.log('Captcha container detected.');
+            // Wait for the visible popup element, not the invisible container
+            await page.waitForSelector('#captcha .yidun_popup', { visible: true, timeout: 10000 });
+            console.log('Captcha popup detected.');
 
             // Now that the captcha is visible, wait for the image network responses
             const [bgResponse, jigsawResponse] = await Promise.all([
