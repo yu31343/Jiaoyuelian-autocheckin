@@ -100,6 +100,9 @@ async function solveCaptcha(page, bgImgUrl, jigsawImgUrl) {
         await page.mouse.up();
         console.log('Slider drag performed.');
 
+        // Add a short delay to allow the server to process the captcha and respond
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
         await page.waitForSelector(captchaContainerSelector, { hidden: true, timeout: 10000 })
             .catch(() => console.log('Captcha container did not disappear, might be a retry or success message.'));
 
