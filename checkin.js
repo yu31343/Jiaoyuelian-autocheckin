@@ -209,15 +209,34 @@ async function autoCheckIn() {
             process.exit(1); // Force a failure to trigger artifact upload
         }
 
-        // 签到后通常会有弹窗或页面变化，等待一下
-        await new Promise(resolve => setTimeout(resolve, 3000)); // 等待3秒，观察弹窗或提示
-        console.log('Check-in button clicked (or captcha solved).');
+        console.log('Check-in process complete. Now verifying the result...');
 
-        // 再次检查是否有“服务尚未到期，无需签到”的提示
-        const currentStatus = await page.evaluate(() => {
-            const messageElement = document.querySelector('div.layui-layer-content'); // 根据用户提供的信息更新提示文本选择器
-            return messageElement ? messageElement.innerText : 'No toast message found.';
-        });
+        // Wait for either a success toast message or the button to change to "已签到"
+        let statusMessage = 'Check-in status unknown.';
+        try {
+            await page.waitForFunction(
+                () => document.querySelector('div.layui-layer-content')?.innerText.includes('成功') || 
+                      document.querySelector('#qiandao')?.innerText.includes('已签到'),
+                { timeout: 5000 }
+            );
+            
+            statusMessage = await page.evaluate(() => {
+                const toast = document.querySelector('div.layui-layer-content');
+                if (toast && toast.innerText.includes('成功')) return toast.innerText;
+                const button = document.querySelector('#qiandao');
+                if (button && button.innerText.includes('已签到')) return '签到成功 (按钮状态已更新)';
+                return '签到成功 (状态已确认)';
+            });
+
+        } catch (e) {
+            console.log('Could not find success message or "已签到" button state.');
+            // As a fallback, check for any toast message
+            statusMessage = await page.evaluate(() => {
+                const messageElement = document.querySelector('div.layui-layer-content');
+                return messageElement ? messageElement.innerText : 'No confirmation message found after timeout.';
+            });
+        }
+        const currentStatus = statusMessage;
         console.log(`Check-in result/toast: ${currentStatus}`);
 
         console.log(`CHECKIN_RESULT: ${currentStatus}`); // Output the check-in result for the workflow
