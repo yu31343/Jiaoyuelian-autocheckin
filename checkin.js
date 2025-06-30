@@ -19,41 +19,37 @@ async function solveCaptcha(page) {
     let jigsawImgUrl = null;
 
     try {
-        // Wait for the captcha container to appear
-        await page.waitForSelector(captchaContainerSelector, { timeout: 15000 }); // Increased timeout
-        console.log('Captcha container detected.');
-
-        // Enable request interception
+        // Enable request interception *before* waiting for the captcha container
+        // This ensures we don't miss any early requests
         await page.setRequestInterception(true);
 
+        // Set up request listener to capture image URLs
         page.on('request', interceptedRequest => {
             const url = interceptedRequest.url();
-            // Look for image URLs from necaptcha.nosdn.127.net
             if (url.includes('necaptcha.nosdn.127.net') && (url.endsWith('.jpg') || url.endsWith('.png'))) {
                 if (url.endsWith('.jpg') && !bgImgUrl) { // Assuming .jpg is background
                     bgImgUrl = url;
-                    console.log(`Captured background image URL: ${bgImgUrl}`);
                 } else if (url.endsWith('.png') && !jigsawImgUrl) { // Assuming .png is jigsaw
                     jigsawImgUrl = url;
-                    console.log(`Captured jigsaw image URL: ${jigsawImgUrl}`);
                 }
             }
             interceptedRequest.continue();
         });
 
-        // Reload the captcha or wait for it to load its resources
-        // If the captcha is already visible, simply waiting for a moment might be enough for requests to fire
-        // Or, we might need to trigger a refresh of the captcha if it's already loaded
-        // For now, let's just wait for the URLs to be captured.
-        let attempts = 0;
-        while ((!bgImgUrl || !jigsawImgUrl) && attempts < 5) { // Wait up to 5 seconds for images
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            attempts++;
-        }
+        // Wait for the captcha container to appear
+        await page.waitForSelector(captchaContainerSelector, { timeout: 15000 }); // Increased timeout
+        console.log('Captcha container detected.');
 
-        if (!bgImgUrl || !jigsawImgUrl) {
-            throw new Error('Failed to capture both captcha image URLs via network interception.');
-        }
+        // Explicitly wait for the image responses
+        const [bgResponse, jigsawResponse] = await Promise.all([
+            page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.jpg'), { timeout: 10000 }),
+            page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.png'), { timeout: 10000 })
+        ]);
+
+        bgImgUrl = bgResponse.url();
+        jigsawImgUrl = jigsawResponse.url();
+        console.log(`Captured background image URL: ${bgImgUrl}`);
+        console.log(`Captured jigsaw image URL: ${jigsawImgUrl}`);
 
         // Disable request interception after capturing URLs
         await page.setRequestInterception(false);
@@ -82,7 +78,7 @@ async function solveCaptcha(page) {
                 }
                 if (stderr) {
                     console.error(`stderr: ${stderr}`);
-                    // return reject(new Error(stderr)); // Consider rejecting if stderr indicates an error
+                    // return reject(new Error(stderr));
                 }
                 resolve(stdout.trim());
             });
