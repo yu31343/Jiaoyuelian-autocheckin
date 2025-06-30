@@ -10,57 +10,27 @@ const PASSWORD = process.env.NATPIERCE_PASSWORD;
 const LOGIN_URL = 'https://www.natpierce.cn/pc/login/login.html'; // 明确登录页
 const SIGN_URL = 'https://www.natpierce.cn/pc/sign/index.html';   // 签到页
 
-async function solveCaptcha(page) {
-    console.log('Attempting to solve captcha...');
+async function solveCaptcha(page, bgImgUrl, jigsawImgUrl) {
+    console.log('Attempting to solve captcha with provided image URLs...');
     const captchaContainerSelector = '#captcha';
-    const sliderHandleSelector = '.yidun_slider'; // This selector might still be valid for the draggable element
-
-    let bgImgUrl = null;
-    let jigsawImgUrl = null;
+    const sliderHandleSelector = '.yidun_slider';
 
     try {
-        // Enable request interception *before* waiting for the captcha container
-        // This ensures we don't miss any early requests
-        await page.setRequestInterception(true);
-
-        // Set up request listener to capture image URLs
-        page.on('request', interceptedRequest => {
-            const url = interceptedRequest.url();
-            if (url.includes('necaptcha.nosdn.127.net') && (url.endsWith('.jpg') || url.endsWith('.png'))) {
-                if (url.endsWith('.jpg') && !bgImgUrl) { // Assuming .jpg is background
-                    bgImgUrl = url;
-                } else if (url.endsWith('.png') && !jigsawImgUrl) { // Assuming .png is jigsaw
-                    jigsawImgUrl = url;
-                }
-            }
-            interceptedRequest.continue();
-        });
-
-        // Wait for the captcha container to appear
-        await page.waitForSelector(captchaContainerSelector, { timeout: 15000 }); // Increased timeout
-        console.log('Captcha container detected.');
-
-        // Explicitly wait for the image responses
-        const [bgResponse, jigsawResponse] = await Promise.all([
-            page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.jpg'), { timeout: 10000 }),
-            page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.png'), { timeout: 10000 })
-        ]);
-
-        bgImgUrl = bgResponse.url();
-        jigsawImgUrl = jigsawResponse.url();
-        console.log(`Captured background image URL: ${bgImgUrl}`);
-        console.log(`Captured jigsaw image URL: ${jigsawImgUrl}`);
-
-        // Disable request interception after capturing URLs
-        await page.setRequestInterception(false);
+        // URLs are now passed as arguments, so we don't need to intercept requests here.
 
         // Wait for the slider handle to be visible
         await page.waitForSelector(sliderHandleSelector, { timeout: 10000 });
         console.log('Slider handle detected.');
 
-        // Download images
-        const bgImgBuffer = await page.goto(bgImgUrl).then(response => response.buffer());
-        const jigsawImgBuffer = await page.goto(jigsawImgUrl).then(response => response.buffer());
+        // Download images using the provided URLs
+        console.log(`Using background image URL: ${bgImgUrl}`);
+        console.log(`Using jigsaw image URL: ${jigsawImgUrl}`);
+
+        // It's better to create a new page for downloading to not interfere with the current page state
+        const newPage = await page.browser().newPage();
+        const bgImgBuffer = await newPage.goto(bgImgUrl).then(response => response.buffer());
+        const jigsawImgBuffer = await newPage.goto(jigsawImgUrl).then(response => response.buffer());
+        await newPage.close();
 
         const bgImgPath = path.join(__dirname, 'captcha_bg.png');
         const jigsawImgPath = path.join(__dirname, 'captcha_jigsaw.png');
@@ -78,7 +48,6 @@ async function solveCaptcha(page) {
                 }
                 if (stderr) {
                     console.error(`stderr: ${stderr}`);
-                    // return reject(new Error(stderr));
                 }
                 resolve(stdout.trim());
             });
@@ -100,32 +69,25 @@ async function solveCaptcha(page) {
 
         const startX = sliderBoundingBox.x + sliderBoundingBox.width / 2;
         const startY = sliderBoundingBox.y + sliderBoundingBox.height / 2;
-        const endX = startX + offset; // Move by the calculated offset
-        const endY = startY; // No vertical movement
+        const endX = startX + offset;
+        const endY = startY;
 
         console.log(`Dragging from (${startX}, ${startY}) to (${endX}, ${endY})`);
 
         await page.mouse.move(startX, startY);
         await page.mouse.down();
-        await page.mouse.move(endX, endY, { steps: 20 }); // Smooth drag
+        await page.mouse.move(endX, endY, { steps: 20 });
         await page.mouse.up();
         console.log('Slider drag performed.');
 
-        // Wait for captcha to disappear or verification message
         await page.waitForSelector(captchaContainerSelector, { hidden: true, timeout: 10000 })
             .catch(() => console.log('Captcha container did not disappear, might be a retry or success message.'));
 
         console.log('Captcha solving attempt finished.');
-        return true; // Indicate captcha was handled
+        return true;
     } catch (error) {
         console.error('Error solving captcha:', error);
-        // Ensure request interception is disabled even on error
-        try {
-            await page.setRequestInterception(false);
-        } catch (interceptionError) {
-            console.error('Error disabling request interception:', interceptionError);
-        }
-        return false; // Indicate captcha solving failed
+        return false;
     }
 }
 
@@ -165,13 +127,6 @@ async function autoCheckIn() {
 
         // 点击登录按钮
         console.log('Clicking login button...');
-        // 尝试更精确地选择登录按钮，通常登录按钮会有特定的class或者text
-        // 这里的选择器需要根据实际HTML来确定，例如：
-        // await page.click('button[type="submit"]');
-        // await page.click('.login-button'); // 假设登录按钮的class是login-button
-        // 根据你截图，登录按钮可能是一个具有文本"登录"的div或button
-        // 如果是button，可以是 page.click('button:has-text("登录")');
-        // 如果是一个通用的元素，比如带有van-button--normal class，就点击它
         await page.click('div.login_btn'); // 根据用户提供的信息更新登录按钮选择器
 
         console.log('Waiting for navigation after login...');
@@ -190,22 +145,53 @@ async function autoCheckIn() {
         const checkinButtonSelector = '#qiandao'; // 根据用户提供的信息更新签到按钮选择器
         await page.waitForSelector(checkinButtonSelector, { timeout: 30000 });
 
+        // --- Start of new captcha handling logic ---
+        let bgImgUrl, jigsawImgUrl;
+        let captchaImagePromise = new Promise((resolve, reject) => {
+            page.on('response', async (response) => {
+                const url = response.url();
+                if (url.includes('necaptcha.nosdn.127.net')) {
+                    if (url.endsWith('.jpg')) {
+                        bgImgUrl = url;
+                        console.log(`Captured background image URL: ${bgImgUrl}`);
+                    } else if (url.endsWith('.png')) {
+                        jigsawImgUrl = url;
+                        console.log(`Captured jigsaw image URL: ${jigsawImgUrl}`);
+                    }
+                    if (bgImgUrl && jigsawImgUrl) {
+                        page.removeAllListeners('response');
+                        resolve();
+                    }
+                }
+            });
+            // Set a timeout for the promise
+            setTimeout(() => {
+                page.removeAllListeners('response');
+                reject(new Error('Timeout waiting for captcha images'))
+            }, 20000);
+        });
+
         console.log('Clicking check-in button...');
         await page.click(checkinButtonSelector);
 
         // Check if captcha appeared
-        const isCaptchaVisible = await page.$('#captcha'); // Check for the captcha container
-        if (isCaptchaVisible) {
-            console.log('Captcha detected after clicking sign-in button. Attempting to solve...');
-            const captchaSolved = await solveCaptcha(page);
+        try {
+            await page.waitForSelector('#captcha', { timeout: 5000 }); // Wait for captcha container to be sure
+            console.log('Captcha detected. Waiting for images...');
+            
+            await captchaImagePromise; // Wait for URLs to be captured
+            
+            const captchaSolved = await solveCaptcha(page, bgImgUrl, jigsawImgUrl);
             if (!captchaSolved) {
                 console.error('Captcha solving failed. Aborting check-in.');
-                // Optionally, throw an error or return a specific status
-                // For now, let's just log and proceed to get currentStatus, which might be an error message
             }
-        } else {
-            console.log('No captcha detected.');
+        } catch (error) {
+            // This block will be entered if captcha does not appear within the timeout
+            console.log('No captcha detected or it did not appear in time.');
+            // We can remove the promise listener if it's no longer needed
+            page.removeAllListeners('response');
         }
+        // --- End of new captcha handling logic ---
 
         // 签到后通常会有弹窗或页面变化，等待一下
         await new Promise(resolve => setTimeout(resolve, 3000)); // 等待3秒，观察弹窗或提示
