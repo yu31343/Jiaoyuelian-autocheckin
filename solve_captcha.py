@@ -29,17 +29,21 @@ def find_gap_position(bg_base64, jigsaw_base64):
     except Exception as e:
         raise ValueError(f"Base64 decoding failed: {e}")
 
-    # Convert image data to OpenCV format
-    bg_np_arr = np.frombuffer(bg_data, np.uint8)
-    jigsaw_np_arr = np.frombuffer(jigsaw_data, np.uint8)
-    
-    bg_img_cv = cv2.imdecode(bg_np_arr, cv2.IMREAD_COLOR)
-    jigsaw_img_cv = cv2.imdecode(jigsaw_np_arr, cv2.IMREAD_COLOR)
+    # Use Pillow to open the image data, which is more robust
+    try:
+        bg_pil = Image.open(BytesIO(bg_data))
+        jigsaw_pil = Image.open(BytesIO(jigsaw_data))
+    except Exception as e:
+        raise IOError(f"Pillow could not open image data: {e}")
+
+    # Convert Pillow image to OpenCV format
+    bg_img_cv = cv2.cvtColor(np.array(bg_pil), cv2.COLOR_RGB2BGR)
+    jigsaw_img_cv = cv2.cvtColor(np.array(jigsaw_pil), cv2.COLOR_RGB2BGR)
 
     if bg_img_cv is None:
-        raise IOError("OpenCV could not decode background image from Base64 data.")
+        raise IOError("Failed to convert background PIL image to OpenCV format.")
     if jigsaw_img_cv is None:
-        raise IOError("OpenCV could not decode jigsaw image from Base64 data.")
+        raise IOError("Failed to convert jigsaw PIL image to OpenCV format.")
 
     # Convert to grayscale
     bg_gray = cv2.cvtColor(bg_img_cv, cv2.COLOR_BGR2GRAY)
