@@ -174,6 +174,10 @@ async function autoCheckIn() {
         } catch (error) {
             // This will catch if the captcha selector times out (i.e., no captcha)
             // or if waiting for images times out.
+            console.error('Error during captcha handling:', error.message);
+            const screenshotPath = path.join(__dirname, 'debug_screenshot.png');
+            await page.screenshot({ path: screenshotPath, fullPage: true });
+            console.log(`Debug screenshot saved to ${screenshotPath}`);
             console.log('No captcha detected or an error occurred during captcha handling.');
         }
 
