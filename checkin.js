@@ -13,101 +13,61 @@ const SIGN_URL = 'https://www.natpierce.cn/pc/sign/index.html';   // 签到页
 async function solveCaptcha(page) {
     console.log('Attempting to solve captcha...');
     const captchaContainerSelector = '#captcha';
-    const bgImgSelector = 'img.yidun_bg-img';
-    const jigsawImgSelector = 'img.yidun_jigsaw';
-    const sliderHandleSelector = '.yidun_slider';
+    const sliderHandleSelector = '.yidun_slider'; // This selector might still be valid for the draggable element
+
+    let bgImgUrl = null;
+    let jigsawImgUrl = null;
 
     try {
-        // Wait for the captcha container and images to appear
-        await page.waitForSelector(captchaContainerSelector, { timeout: 15000 });
-        console.log('Captcha container detected.');
-
-        await page.waitForSelector(bgImgSelector, { timeout: 10000 });
-        await page.waitForSelector(jigsawImgSelector, { timeout: 10000 });
-        await page.waitForSelector(sliderHandleSelector, { timeout: 10000 });
-        console.log('Captcha images and slider handle detected.');
-
-        // Get image URLs from src attributes
-        const bgImgUrl = await page.$eval(bgImgSelector, img => img.src);
-        const jigsawImgUrl = await page.$eval(jigsawImgSelector, img => img.src);
-
-        if (!bgImgUrl || !jigsawImgUrl) {
-            throw new Error('Failed to extract image URLs from captcha elements.');
-        }
-
-        console.log(`Background image URL: ${bgImgUrl}`);
-        console.log(`Jigsaw image URL: ${jigsawImgUrl}`);
-
-        // Enable request interception to capture image responses
+        // Enable request interception *before* waiting for the captcha container
+        // This ensures we don't miss any early requests
         await page.setRequestInterception(true);
 
-        let bgImgBuffer;
-        let jigsawImgBuffer;
-
-        const requestHandler = async interceptedRequest => {
-            if (interceptedRequest.url() === bgImgUrl) {
-                try {
-                    const response = await interceptedRequest.continue();
-                    if (response && response.ok()) {
-                        bgImgBuffer = await response.buffer();
-                        console.log('Background image downloaded.');
-                    } else {
-                        console.error(`Failed to download background image: ${response.status()} ${response.statusText()}`);
-                    }
-                } catch (error) {
-                    console.error('Error during background image download:', error);
+        // Set up request listener to capture image URLs
+        page.on('request', interceptedRequest => {
+            const url = interceptedRequest.url();
+            if (url.includes('necaptcha.nosdn.127.net') && (url.endsWith('.jpg') || url.endsWith('.png'))) {
+                if (url.endsWith('.jpg') && !bgImgUrl) { // Assuming .jpg is background
+                    bgImgUrl = url;
+                } else if (url.endsWith('.png') && !jigsawImgUrl) { // Assuming .png is jigsaw
+                    jigsawImgUrl = url;
                 }
-            } else if (interceptedRequest.url() === jigsawImgUrl) {
-                try {
-                    const response = await interceptedRequest.continue();
-                    if (response && response.ok()) {
-                        jigsawImgBuffer = await response.buffer();
-                        console.log('Jigsaw image downloaded.');
-                    } else {
-                        console.error(`Failed to download jigsaw image: ${response.status()} ${response.statusText()}`);
-                    }
-                } catch (error) {
-                    console.error('Error during jigsaw image download:', error);
-                }
-            } else {
-                interceptedRequest.continue();
             }
-        };
+            interceptedRequest.continue();
+        });
 
-        page.on('request', requestHandler);
+        // Wait for the captcha container to appear
+        await page.waitForSelector(captchaContainerSelector, { timeout: 15000 }); // Increased timeout
+        console.log('Captcha container detected.');
 
-        // Force a reload of the page to ensure images are re-requested and intercepted
-        console.log('Reloading page to ensure captcha images are intercepted...');
-        await page.reload({ waitUntil: 'domcontentloaded' });
-        // After reload, wait for the captcha elements to reappear
-        await page.waitForSelector(bgImgSelector, { timeout: 10000 });
-        await page.waitForSelector(jigsawImgSelector, { timeout: 10000 });
-        console.log('Captcha images re-appeared after reload.');
+        // Explicitly wait for the image responses
+        const [bgResponse, jigsawResponse] = await Promise.all([
+            page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.jpg'), { timeout: 10000 }),
+            page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.png'), { timeout: 10000 })
+        ]);
 
-        // Wait for both buffers to be populated
-        const maxWaitTime = 15000; // 15 seconds
-        const checkInterval = 500; // Check every 500ms
-        let waitedTime = 0;
+        bgImgUrl = bgResponse.url();
+        jigsawImgUrl = jigsawResponse.url();
+        console.log(`Captured background image URL: ${bgImgUrl}`);
+        console.log(`Captured jigsaw image URL: ${jigsawImgUrl}`);
 
-        while ((!bgImgBuffer || !jigsawImgBuffer) && waitedTime < maxWaitTime) {
-            await new Promise(resolve => setTimeout(resolve, checkInterval));
-            waitedTime += checkInterval;
-        }
-
-        // Disable request interception and remove listener
+        // Disable request interception after capturing URLs
         await page.setRequestInterception(false);
-        page.off('request', requestHandler);
 
-        if (!bgImgBuffer || !jigsawImgBuffer) {
-            throw new Error('Timed out waiting for captcha images to download via interception.');
-        }
+        // Wait for the slider handle to be visible
+        await page.waitForSelector(sliderHandleSelector, { timeout: 10000 });
+        console.log('Slider handle detected.');
+
+        // Download images
+        const bgImgBuffer = await page.goto(bgImgUrl).then(response => response.buffer());
+        const jigsawImgBuffer = await page.goto(jigsawImgUrl).then(response => response.buffer());
 
         const bgImgPath = path.join(__dirname, 'captcha_bg.png');
         const jigsawImgPath = path.join(__dirname, 'captcha_jigsaw.png');
 
         await fs.writeFile(bgImgPath, bgImgBuffer);
         await fs.writeFile(jigsawImgPath, jigsawImgBuffer);
-        console.log('Captcha images saved from base64 data.');
+        console.log('Captcha images saved.');
 
         // Call Python script to solve captcha
         const solveResult = await new Promise((resolve, reject) => {
