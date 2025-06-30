@@ -4,6 +4,16 @@ import sys
 import requests
 from io import BytesIO
 from PIL import Image
+import os
+import time
+
+def wait_for_file(file_path, timeout=5):
+    """Waits for a file to exist and be non-empty."""
+    start_time = time.time()
+    while not (os.path.exists(file_path) and os.path.getsize(file_path) > 0):
+        if time.time() - start_time > timeout:
+            raise FileNotFoundError(f"File not found or is empty after {timeout}s: {file_path}")
+        time.sleep(0.1)
 
 def remove_black_border(img):
     # Convert PIL Image to OpenCV format
@@ -22,14 +32,18 @@ def remove_black_border(img):
     return cropped_img
 
 def find_gap_position(bg_img_path, jigsaw_img_path):
+    # Wait for files to be ready
+    wait_for_file(bg_img_path)
+    wait_for_file(jigsaw_img_path)
+
     # Load images using OpenCV
     bg_img_cv = cv2.imread(bg_img_path)
     jigsaw_img_cv = cv2.imread(jigsaw_img_path)
 
     if bg_img_cv is None:
-        raise FileNotFoundError(f"Background image not found at {bg_img_path}")
+        raise IOError(f"OpenCV could not read background image at {bg_img_path}")
     if jigsaw_img_cv is None:
-        raise FileNotFoundError(f"Jigsaw image not found at {jigsaw_img_path}")
+        raise IOError(f"OpenCV could not read jigsaw image at {jigsaw_img_path}")
 
     # Convert to grayscale
     bg_gray = cv2.cvtColor(bg_img_cv, cv2.COLOR_BGR2GRAY)
