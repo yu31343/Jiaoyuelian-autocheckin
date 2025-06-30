@@ -168,14 +168,29 @@ async function autoCheckIn() {
         const checkinButtonSelector = '#qiandao'; // 根据用户提供的信息更新签到按钮选择器
         await page.waitForSelector(checkinButtonSelector, { timeout: 30000 });
 
-        // Add a delay to ensure all scripts have loaded
-        console.log('Waiting for 5 seconds before clicking check-in...');
-        await new Promise(resolve => setTimeout(resolve, 5000));
-
         console.log('Clicking check-in button...');
         await page.click(checkinButtonSelector);
 
-        // Check if captcha appeared and handle it
+        // Wait a moment for any immediate feedback, like a toast message
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Check for "无需签到" message first
+        const alreadyCheckedInMessage = await page.evaluate(() => {
+            const messageElement = document.querySelector('div.layui-layer-content');
+            if (messageElement && messageElement.innerText.includes('服务尚未到期')) {
+                return messageElement.innerText;
+            }
+            return null;
+        });
+
+        if (alreadyCheckedInMessage) {
+            console.log(`Detected message: "${alreadyCheckedInMessage}". Ending script.`);
+            console.log(`CHECKIN_RESULT: ${alreadyCheckedInMessage}`);
+            return; // Exit the function early
+        }
+
+        // If no such message, proceed with captcha handling
+        console.log('No "无需签到" message detected, proceeding to check for captcha.');
         try {
             // Wait for the visible popup element, not the invisible container
             await page.waitForSelector('#captcha .yidun_popup', { visible: true, timeout: 10000 });
