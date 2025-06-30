@@ -28,7 +28,7 @@ jobs:
         python-version: '3.x' # Use the latest Python 3.x version
 
     - name: Install Python dependencies
-      run: pip install requests
+      run: pip install requests opencv-python numpy Pillow
 
     - name: Run check-in and push notification script
       id: checkin_and_notify_step # Renamed ID for clarity

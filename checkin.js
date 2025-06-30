@@ -1,11 +1,104 @@
 // checkin.js
 const puppeteer = require('puppeteer');
+const fs = require('fs').promises; // For file operations
+const path = require('path'); // For path manipulation
+const { exec } = require('child_process'); // For running Python script
 
 // 从环境变量获取敏感信息，对应GitHub Secrets
 const USERNAME = process.env.NATPIERCE_USERNAME;
 const PASSWORD = process.env.NATPIERCE_PASSWORD;
 const LOGIN_URL = 'https://www.natpierce.cn/pc/login/login.html'; // 明确登录页
 const SIGN_URL = 'https://www.natpierce.cn/pc/sign/index.html';   // 签到页
+
+async function solveCaptcha(page) {
+    console.log('Attempting to solve captcha...');
+    const captchaContainerSelector = '#captcha'; // Based on user's script snippet
+    const bgImgSelector = 'img.yidun_bg-img'; // Assumed based on user's Selenium snippet
+    const jigsawImgSelector = 'img.yidun_jigsaw'; // Assumed based on user's Selenium snippet
+    const sliderHandleSelector = '.yidun_slider'; // Assumed based on user's Selenium snippet
+
+    try {
+        // Wait for the captcha container to appear
+        await page.waitForSelector(captchaContainerSelector, { timeout: 10000 });
+        console.log('Captcha container detected.');
+
+        // Wait for the captcha images to load
+        await page.waitForSelector(bgImgSelector, { timeout: 10000 });
+        await page.waitForSelector(jigsawImgSelector, { timeout: 10000 });
+        await page.waitForSelector(sliderHandleSelector, { timeout: 10000 });
+        console.log('Captcha images and slider handle detected.');
+
+        // Get image URLs
+        const bgImgUrl = await page.$eval(bgImgSelector, img => img.src);
+        const jigsawImgUrl = await page.$eval(jigsawImgSelector, img => img.src);
+        console.log(`Background image URL: ${bgImgUrl}`);
+        console.log(`Jigsaw image URL: ${jigsawImgUrl}`);
+
+        // Download images
+        const bgImgBuffer = await page.goto(bgImgUrl).then(response => response.buffer());
+        const jigsawImgBuffer = await page.goto(jigsawImgUrl).then(response => response.buffer());
+
+        const bgImgPath = path.join(__dirname, 'captcha_bg.png');
+        const jigsawImgPath = path.join(__dirname, 'captcha_jigsaw.png');
+
+        await fs.writeFile(bgImgPath, bgImgBuffer);
+        await fs.writeFile(jigsawImgPath, jigsawImgBuffer);
+        console.log('Captcha images saved.');
+
+        // Call Python script to solve captcha
+        const solveResult = await new Promise((resolve, reject) => {
+            exec(`python solve_captcha.py "${bgImgPath}" "${jigsawImgPath}"`, (error, stdout, stderr) => {
+                if (error) {
+                    console.error(`exec error: ${error}`);
+                    return reject(error);
+                }
+                if (stderr) {
+                    console.error(`stderr: ${stderr}`);
+                    // return reject(new Error(stderr)); // Consider rejecting if stderr indicates an error
+                }
+                resolve(stdout.trim());
+            });
+        });
+
+        const offset = parseFloat(solveResult);
+        if (isNaN(offset)) {
+            throw new Error(`Failed to get valid offset from Python script: ${solveResult}`);
+        }
+        console.log(`Calculated offset: ${offset}`);
+
+        // Perform slider drag
+        const sliderHandle = await page.$(sliderHandleSelector);
+        const sliderBoundingBox = await sliderHandle.boundingBox();
+
+        if (!sliderBoundingBox) {
+            throw new Error('Could not get bounding box for slider handle.');
+        }
+
+        const startX = sliderBoundingBox.x + sliderBoundingBox.width / 2;
+        const startY = sliderBoundingBox.y + sliderBoundingBox.height / 2;
+        const endX = startX + offset; // Move by the calculated offset
+        const endY = startY; // No vertical movement
+
+        console.log(`Dragging from (${startX}, ${startY}) to (${endX}, ${endY})`);
+
+        await page.mouse.move(startX, startY);
+        await page.mouse.down();
+        await page.mouse.move(endX, endY, { steps: 20 }); // Smooth drag
+        await page.mouse.up();
+        console.log('Slider drag performed.');
+
+        // Wait for captcha to disappear or verification message
+        await page.waitForSelector(captchaContainerSelector, { hidden: true, timeout: 10000 })
+            .catch(() => console.log('Captcha container did not disappear, might be a retry or success message.'));
+
+        console.log('Captcha solving attempt finished.');
+        return true; // Indicate captcha was handled
+    } catch (error) {
+        console.error('Error solving captcha:', error);
+        return false; // Indicate captcha solving failed
+    }
+}
+
 
 async function autoCheckIn() {
     let browser;
@@ -64,30 +157,35 @@ async function autoCheckIn() {
 
         // 再次等待页面元素加载，特别是签到按钮
         console.log('Waiting for sign-in button...');
-        // 这是最关键的步骤，需要精确的签到按钮选择器
-        // 根据你之前的描述“蓝色底色，白色‘签到’文字的按钮”，它可能是：
-        // 1. 一个带有特定class的button： `button.some-blue-button-class`
-        // 2. 一个包含“签到”文本的元素： `button:has-text("签到")` 或 `div.some-class:has-text("签到")`
-        // 3. 一个具有特定id的元素： `#checkin-button`
-        // 你需要在登录后的签到页面上检查HTML结构来获取最准确的选择器。
-        // 这里我假设它是一个包含"签到"文本的按钮或者带有特定class的按钮
         const checkinButtonSelector = '#qiandao'; // 根据用户提供的信息更新签到按钮选择器
         await page.waitForSelector(checkinButtonSelector, { timeout: 30000 });
 
-        // 检查签到按钮是否可点击（例如，是否被禁用）
-        // 注意：由于现在是div，可能没有disabled属性，暂时移除disabled判断，直接点击。
-        // 如果需要更严谨的判断，需要用户提供更多信息来识别签到状态。
         console.log('Clicking check-in button...');
         await page.click(checkinButtonSelector);
+
+        // Check if captcha appeared
+        const isCaptchaVisible = await page.$('#captcha'); // Check for the captcha container
+        if (isCaptchaVisible) {
+            console.log('Captcha detected after clicking sign-in button. Attempting to solve...');
+            const captchaSolved = await solveCaptcha(page);
+            if (!captchaSolved) {
+                console.error('Captcha solving failed. Aborting check-in.');
+                // Optionally, throw an error or return a specific status
+                // For now, let's just log and proceed to get currentStatus, which might be an error message
+            }
+        } else {
+            console.log('No captcha detected.');
+        }
+
         // 签到后通常会有弹窗或页面变化，等待一下
-            await new Promise(resolve => setTimeout(resolve, 3000)); // 等待3秒，观察弹窗或提示
-        console.log('Check-in button clicked.');
+        await new Promise(resolve => setTimeout(resolve, 3000)); // 等待3秒，观察弹窗或提示
+        console.log('Check-in button clicked (or captcha solved).');
 
         // 再次检查是否有“服务尚未到期，无需签到”的提示
-            const currentStatus = await page.evaluate(() => {
-                const messageElement = document.querySelector('div.layui-layer-content'); // 根据用户提供的信息更新提示文本选择器
-                return messageElement ? messageElement.innerText : 'No toast message found.';
-            });
+        const currentStatus = await page.evaluate(() => {
+            const messageElement = document.querySelector('div.layui-layer-content'); // 根据用户提供的信息更新提示文本选择器
+            return messageElement ? messageElement.innerText : 'No toast message found.';
+        });
         console.log(`Check-in result/toast: ${currentStatus}`);
 
         console.log(`CHECKIN_RESULT: ${currentStatus}`); // Output the check-in result for the workflow
