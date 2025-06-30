@@ -145,6 +145,10 @@ async function autoCheckIn() {
         const checkinButtonSelector = '#qiandao'; // 根据用户提供的信息更新签到按钮选择器
         await page.waitForSelector(checkinButtonSelector, { timeout: 30000 });
 
+        // Add a delay to ensure all scripts have loaded
+        console.log('Waiting for 5 seconds before clicking check-in...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+
         console.log('Clicking check-in button...');
         await page.click(checkinButtonSelector);
 
