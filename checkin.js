@@ -27,21 +27,80 @@ async function solveCaptcha(page) {
         await page.waitForSelector(sliderHandleSelector, { timeout: 10000 });
         console.log('Captcha images and slider handle detected.');
 
-        // Get base64 image data from src attributes
-        const bgImgData = await page.$eval(bgImgSelector, img => img.src);
-        const jigsawImgData = await page.$eval(jigsawImgSelector, img => img.src);
+        // Get image URLs from src attributes
+        const bgImgUrl = await page.$eval(bgImgSelector, img => img.src);
+        const jigsawImgUrl = await page.$eval(jigsawImgSelector, img => img.src);
 
-        // Extract base64 string (remove "data:image/jpeg;base64," prefix)
-        const base64Bg = bgImgData.split(',')[1];
-        const base64Jigsaw = jigsawImgData.split(',')[1];
-
-        if (!base64Bg || !base64Jigsaw) {
-            throw new Error('Failed to extract base64 image data from captcha elements.');
+        if (!bgImgUrl || !jigsawImgUrl) {
+            throw new Error('Failed to extract image URLs from captcha elements.');
         }
 
-        // Convert base64 to buffer
-        const bgImgBuffer = Buffer.from(base64Bg, 'base64');
-        const jigsawImgBuffer = Buffer.from(base64Jigsaw, 'base64');
+        console.log(`Background image URL: ${bgImgUrl}`);
+        console.log(`Jigsaw image URL: ${jigsawImgUrl}`);
+
+        // Enable request interception to capture image responses
+        await page.setRequestInterception(true);
+
+        let bgImgBuffer;
+        let jigsawImgBuffer;
+
+        const requestHandler = async interceptedRequest => {
+            if (interceptedRequest.url() === bgImgUrl) {
+                try {
+                    const response = await interceptedRequest.continue();
+                    if (response && response.ok()) {
+                        bgImgBuffer = await response.buffer();
+                        console.log('Background image downloaded.');
+                    } else {
+                        console.error(`Failed to download background image: ${response.status()} ${response.statusText()}`);
+                    }
+                } catch (error) {
+                    console.error('Error during background image download:', error);
+                }
+            } else if (interceptedRequest.url() === jigsawImgUrl) {
+                try {
+                    const response = await interceptedRequest.continue();
+                    if (response && response.ok()) {
+                        jigsawImgBuffer = await response.buffer();
+                        console.log('Jigsaw image downloaded.');
+                    } else {
+                        console.error(`Failed to download jigsaw image: ${response.status()} ${response.statusText()}`);
+                    }
+                } catch (error) {
+                    console.error('Error during jigsaw image download:', error);
+                }
+            } else {
+                interceptedRequest.continue();
+            }
+        };
+
+        page.on('request', requestHandler);
+
+        // Force a reload of the page to ensure images are re-requested and intercepted
+        console.log('Reloading page to ensure captcha images are intercepted...');
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        // After reload, wait for the captcha elements to reappear
+        await page.waitForSelector(bgImgSelector, { timeout: 10000 });
+        await page.waitForSelector(jigsawImgSelector, { timeout: 10000 });
+        console.log('Captcha images re-appeared after reload.');
+
+        // Wait for both buffers to be populated
+        const maxWaitTime = 15000; // 15 seconds
+        const checkInterval = 500; // Check every 500ms
+        let waitedTime = 0;
+
+        while ((!bgImgBuffer || !jigsawImgBuffer) && waitedTime < maxWaitTime) {
+            await new Promise(resolve => setTimeout(resolve, checkInterval));
+            waitedTime += checkInterval;
+        }
+
+        // Disable request interception and remove listener
+        await page.setRequestInterception(false);
+        page.off('request', requestHandler);
+
+        if (!bgImgBuffer || !jigsawImgBuffer) {
+            throw new Error('Timed out waiting for captcha images to download via interception.');
+        }
 
         const bgImgPath = path.join(__dirname, 'captcha_bg.png');
         const jigsawImgPath = path.join(__dirname, 'captcha_jigsaw.png');
