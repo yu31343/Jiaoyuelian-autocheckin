@@ -24,7 +24,7 @@ async function solveCaptcha(page) {
 
         // Wait for the captcha images to load
         await page.waitForSelector(bgImgSelector, { timeout: 10000 });
-        await page.waitForSelector(jigsawImgSelector, { timeout: 10000 });
+        await page.waitForSelector(jigsawImgUrl, { timeout: 10000 });
         await page.waitForSelector(sliderHandleSelector, { timeout: 10000 });
         console.log('Captcha images and slider handle detected.');
 
