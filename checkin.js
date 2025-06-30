@@ -19,26 +19,34 @@ async function solveCaptcha(page, bgImgUrl, jigsawImgUrl) {
         await page.waitForSelector(sliderHandleSelector, { timeout: 10000 });
         console.log('Slider handle detected.');
 
-        console.log(`Fetching background image from: ${bgImgUrl}`);
-        console.log(`Fetching jigsaw image from: ${jigsawImgUrl}`);
+        console.log(`Fetching images via browser's native fetch...`);
 
-        const newPage = await page.browser().newPage();
-        
-        const bgResponse = await newPage.goto(bgImgUrl);
-        const bgImgBuffer = await bgResponse.buffer();
-        if (!bgResponse.ok() || bgImgBuffer.length === 0) {
-            throw new Error(`Failed to download or received empty background image. Status: ${bgResponse.status()}`);
+        const fetchImageAsBase64 = async (url) => {
+            // This function runs in the browser context
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
+            }
+            const buffer = await response.arrayBuffer();
+            // Convert ArrayBuffer to a plain array of numbers to pass back to Node.js
+            return Array.from(new Uint8Array(buffer));
+        };
+
+        const bgImageData = await page.evaluate(fetchImageAsBase64, bgImgUrl);
+        const jigsawImageData = await page.evaluate(fetchImageAsBase64, jigsawImgUrl);
+
+        if (!bgImageData || bgImageData.length === 0) {
+            throw new Error('Downloaded background image data is empty.');
         }
-        console.log(`Background image downloaded, size: ${bgImgBuffer.length} bytes.`);
-
-        const jigsawResponse = await newPage.goto(jigsawImgUrl);
-        const jigsawImgBuffer = await jigsawResponse.buffer();
-        if (!jigsawResponse.ok() || jigsawImgBuffer.length === 0) {
-            throw new Error(`Failed to download or received empty jigsaw image. Status: ${jigsawResponse.status()}`);
+        if (!jigsawImageData || jigsawImageData.length === 0) {
+            throw new Error('Downloaded jigsaw image data is empty.');
         }
-        console.log(`Jigsaw image downloaded, size: ${jigsawImgBuffer.length} bytes.`);
+        console.log(`Background image downloaded, size: ${bgImageData.length} bytes.`);
+        console.log(`Jigsaw image downloaded, size: ${jigsawImageData.length} bytes.`);
 
-        await newPage.close();
+        // Convert the array of numbers back to a Node.js Buffer
+        const bgImgBuffer = Buffer.from(bgImageData);
+        const jigsawImgBuffer = Buffer.from(jigsawImageData);
 
         const bgBase64 = bgImgBuffer.toString('base64');
         const jigsawBase64 = jigsawImgBuffer.toString('base64');
