@@ -12,27 +12,55 @@ const SIGN_URL = 'https://www.natpierce.cn/pc/sign/index.html';   // 签到页
 
 async function solveCaptcha(page) {
     console.log('Attempting to solve captcha...');
-    const captchaContainerSelector = '#captcha'; // Based on user's script snippet
-    const bgImgSelector = 'img.yidun_bg-img'; // Assumed based on user's Selenium snippet
-    const jigsawImgSelector = 'img.yidun_jigsaw'; // Assumed based on user's Selenium snippet
-    const sliderHandleSelector = '.yidun_slider'; // Assumed based on user's Selenium snippet
+    const captchaContainerSelector = '#captcha';
+    const sliderHandleSelector = '.yidun_slider'; // This selector might still be valid for the draggable element
+
+    let bgImgUrl = null;
+    let jigsawImgUrl = null;
 
     try {
         // Wait for the captcha container to appear
-        await page.waitForSelector(captchaContainerSelector, { timeout: 10000 });
+        await page.waitForSelector(captchaContainerSelector, { timeout: 15000 }); // Increased timeout
         console.log('Captcha container detected.');
 
-        // Wait for the captcha images to load
-        await page.waitForSelector(bgImgSelector, { timeout: 10000 });
-        await page.waitForSelector(jigsawImgUrl, { timeout: 10000 });
-        await page.waitForSelector(sliderHandleSelector, { timeout: 10000 });
-        console.log('Captcha images and slider handle detected.');
+        // Enable request interception
+        await page.setRequestInterception(true);
 
-        // Get image URLs
-        const bgImgUrl = await page.$eval(bgImgSelector, img => img.src);
-        const jigsawImgUrl = await page.$eval(jigsawImgSelector, img => img.src);
-        console.log(`Background image URL: ${bgImgUrl}`);
-        console.log(`Jigsaw image URL: ${jigsawImgUrl}`);
+        page.on('request', interceptedRequest => {
+            const url = interceptedRequest.url();
+            // Look for image URLs from necaptcha.nosdn.127.net
+            if (url.includes('necaptcha.nosdn.127.net') && (url.endsWith('.jpg') || url.endsWith('.png'))) {
+                if (url.endsWith('.jpg') && !bgImgUrl) { // Assuming .jpg is background
+                    bgImgUrl = url;
+                    console.log(`Captured background image URL: ${bgImgUrl}`);
+                } else if (url.endsWith('.png') && !jigsawImgUrl) { // Assuming .png is jigsaw
+                    jigsawImgUrl = url;
+                    console.log(`Captured jigsaw image URL: ${jigsawImgUrl}`);
+                }
+            }
+            interceptedRequest.continue();
+        });
+
+        // Reload the captcha or wait for it to load its resources
+        // If the captcha is already visible, simply waiting for a moment might be enough for requests to fire
+        // Or, we might need to trigger a refresh of the captcha if it's already loaded
+        // For now, let's just wait for the URLs to be captured.
+        let attempts = 0;
+        while ((!bgImgUrl || !jigsawImgUrl) && attempts < 5) { // Wait up to 5 seconds for images
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            attempts++;
+        }
+
+        if (!bgImgUrl || !jigsawImgUrl) {
+            throw new Error('Failed to capture both captcha image URLs via network interception.');
+        }
+
+        // Disable request interception after capturing URLs
+        await page.setRequestInterception(false);
+
+        // Wait for the slider handle to be visible
+        await page.waitForSelector(sliderHandleSelector, { timeout: 10000 });
+        console.log('Slider handle detected.');
 
         // Download images
         const bgImgBuffer = await page.goto(bgImgUrl).then(response => response.buffer());
@@ -95,6 +123,12 @@ async function solveCaptcha(page) {
         return true; // Indicate captcha was handled
     } catch (error) {
         console.error('Error solving captcha:', error);
+        // Ensure request interception is disabled even on error
+        try {
+            await page.setRequestInterception(false);
+        } catch (interceptionError) {
+            console.error('Error disabling request interception:', interceptionError);
+        }
         return false; // Indicate captcha solving failed
     }
 }
