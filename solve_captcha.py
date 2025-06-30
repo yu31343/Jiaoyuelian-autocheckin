@@ -6,22 +6,6 @@ import json
 from io import BytesIO
 from PIL import Image
 
-def remove_black_border(img):
-    # Convert PIL Image to OpenCV format
-    img_cv = np.array(img)
-    img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
-
-    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    if not contours:
-        return img_cv # Return original if no contours found
-
-    x, y, w, h = cv2.boundingRect(contours[0])
-    cropped_img = img_cv[y:y+h, x:x+w]
-    return cropped_img
-
 def find_gap_position(bg_base64, jigsaw_base64):
     # Decode Base64 strings to image data
     try:
@@ -30,7 +14,7 @@ def find_gap_position(bg_base64, jigsaw_base64):
     except Exception as e:
         raise ValueError(f"Base64 decoding failed: {e}")
 
-    # Use Pillow to open the image data, which is more robust
+    # Use Pillow to open the image data
     try:
         bg_pil = Image.open(BytesIO(bg_data))
         jigsaw_pil = Image.open(BytesIO(jigsaw_data))
@@ -38,38 +22,54 @@ def find_gap_position(bg_base64, jigsaw_base64):
         raise IOError(f"Pillow could not open image data: {e}")
 
     # Convert Pillow image to OpenCV format
-    bg_img_cv = cv2.cvtColor(np.array(bg_pil), cv2.COLOR_RGB2BGR)
-    jigsaw_img_cv = cv2.cvtColor(np.array(jigsaw_pil), cv2.COLOR_RGB2BGR)
+    bg_img = cv2.cvtColor(np.array(bg_pil), cv2.COLOR_RGB2BGR)
+    jigsaw_img = cv2.cvtColor(np.array(jigsaw_pil), cv2.COLOR_RGBA2BGRA) # Keep alpha channel
 
-    if bg_img_cv is None:
-        raise IOError("Failed to convert background PIL image to OpenCV format.")
-    if jigsaw_img_cv is None:
-        raise IOError("Failed to convert jigsaw PIL image to OpenCV format.")
+    # --- Start of new algorithm ---
 
-    # Convert to grayscale
-    bg_gray = cv2.cvtColor(bg_img_cv, cv2.COLOR_BGR2GRAY)
-    jigsaw_gray = cv2.cvtColor(jigsaw_img_cv, cv2.COLOR_BGR2GRAY)
+    # 1. Process Jigsaw (Slider) Image
+    # Use the alpha channel to create a mask for the jigsaw piece
+    jigsaw_gray = cv2.cvtColor(jigsaw_img, cv2.COLOR_BGRA2GRAY)
+    _, jigsaw_mask = cv2.threshold(jigsaw_gray, 1, 255, cv2.THRESH_BINARY)
+    # Find contours of the jigsaw piece
+    contours, _ = cv2.findContours(jigsaw_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        raise ValueError("Could not find contours in jigsaw image.")
+    jigsaw_contour = contours[0]
 
-    # Remove black border from jigsaw (if any)
-    jigsaw_cropped = remove_black_border(jigsaw_img_cv)
-    jigsaw_gray_cropped = cv2.cvtColor(jigsaw_cropped, cv2.COLOR_BGR2GRAY)
+    # 2. Process Background Image
+    # Apply Canny edge detection to the background image
+    bg_gray = cv2.cvtColor(bg_img, cv2.COLOR_BGR2GRAY)
+    bg_edges = cv2.Canny(bg_gray, 100, 200)
 
-    # Perform template matching
-    # Use TM_CCOEFF_NORMED for better results with varying lighting
-    result = cv2.matchTemplate(bg_gray, jigsaw_gray_cropped, cv2.TM_CCOEFF_NORMED)
+    # 3. Find the Gap in the Background
+    # Find contours in the edged background
+    contours, _ = cv2.findContours(bg_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        raise ValueError("Could not find any contours in the background image.")
+
+    # 4. Match Jigsaw Contour to Background Contours
+    # Iterate through background contours and find the one that best matches the jigsaw contour
+    best_match_score = float('inf')
+    best_match_contour = None
+    for contour in contours:
+        # cv2.matchShapes returns a score, lower is better
+        match_score = cv2.matchShapes(jigsaw_contour, contour, cv2.CONTOURS_MATCH_I1, 0.0)
+        if match_score < best_match_score:
+            best_match_score = match_score
+            best_match_contour = contour
     
-    # Find the best match location
-    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+    if best_match_contour is None:
+        raise ValueError("Could not find a matching contour in the background.")
+
+    # 5. Calculate the Offset
+    # The offset is the x-coordinate of the bounding box of the best matching contour
+    x, _, _, _ = cv2.boundingRect(best_match_contour)
     
-    # The x-coordinate of the top-left corner of the best match
-    # We need the x-coordinate of the gap, which is where the jigsaw piece fits
-    # The template matching finds where the jigsaw *is* in the background.
-    # The actual gap is usually to the left of the matched jigsaw piece.
-    # This might require some calibration based on the specific captcha.
-    # For now, let's assume the x-coordinate of the match is the offset.
-    x_offset = max_loc[0]
-    
-    return x_offset
+    # This is a common adjustment needed because the contour found is the gap itself.
+    # The slider needs to be moved to the left edge of the gap.
+    # Sometimes a small calibration is needed. We start with a small deduction.
+    return x - 6
 
 if __name__ == '__main__':
     try:
