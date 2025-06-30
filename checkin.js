@@ -23,8 +23,21 @@ async function solveCaptcha(page, bgImgUrl, jigsawImgUrl) {
         console.log(`Fetching jigsaw image from: ${jigsawImgUrl}`);
 
         const newPage = await page.browser().newPage();
-        const bgImgBuffer = await newPage.goto(bgImgUrl).then(response => response.buffer());
-        const jigsawImgBuffer = await newPage.goto(jigsawImgUrl).then(response => response.buffer());
+        
+        const bgResponse = await newPage.goto(bgImgUrl);
+        const bgImgBuffer = await bgResponse.buffer();
+        if (!bgResponse.ok() || bgImgBuffer.length === 0) {
+            throw new Error(`Failed to download or received empty background image. Status: ${bgResponse.status()}`);
+        }
+        console.log(`Background image downloaded, size: ${bgImgBuffer.length} bytes.`);
+
+        const jigsawResponse = await newPage.goto(jigsawImgUrl);
+        const jigsawImgBuffer = await jigsawResponse.buffer();
+        if (!jigsawResponse.ok() || jigsawImgBuffer.length === 0) {
+            throw new Error(`Failed to download or received empty jigsaw image. Status: ${jigsawResponse.status()}`);
+        }
+        console.log(`Jigsaw image downloaded, size: ${jigsawImgBuffer.length} bytes.`);
+
         await newPage.close();
 
         const bgBase64 = bgImgBuffer.toString('base64');
