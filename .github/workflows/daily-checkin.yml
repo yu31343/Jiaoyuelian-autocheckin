@@ -50,3 +50,10 @@ jobs:
 
         # Run push_notification.py with the extracted result
         python push_notification.py "$CHECKIN_RESULT"
+
+    - name: Upload debug artifacts
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: debug-artifacts
+        path: debug/
