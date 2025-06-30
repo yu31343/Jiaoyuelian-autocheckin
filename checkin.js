@@ -180,7 +180,8 @@ async function autoCheckIn() {
             const screenshotPath = path.join(debugDir, 'debug_screenshot.png');
             await page.screenshot({ path: screenshotPath, fullPage: true });
             console.log(`Debug screenshot saved to ${screenshotPath}`);
-            console.log('No captcha detected or an error occurred during captcha handling.');
+            console.log('No captcha detected or an error occurred during captcha handling. Forcing script exit.');
+            process.exit(1); // Force a failure to trigger artifact upload
         }
 
         // 签到后通常会有弹窗或页面变化，等待一下
