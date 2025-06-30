@@ -145,53 +145,37 @@ async function autoCheckIn() {
         const checkinButtonSelector = '#qiandao'; // 根据用户提供的信息更新签到按钮选择器
         await page.waitForSelector(checkinButtonSelector, { timeout: 30000 });
 
-        // --- Start of new captcha handling logic ---
-        let bgImgUrl, jigsawImgUrl;
-        let captchaImagePromise = new Promise((resolve, reject) => {
-            page.on('response', async (response) => {
-                const url = response.url();
-                if (url.includes('necaptcha.nosdn.127.net')) {
-                    if (url.endsWith('.jpg')) {
-                        bgImgUrl = url;
-                        console.log(`Captured background image URL: ${bgImgUrl}`);
-                    } else if (url.endsWith('.png')) {
-                        jigsawImgUrl = url;
-                        console.log(`Captured jigsaw image URL: ${jigsawImgUrl}`);
-                    }
-                    if (bgImgUrl && jigsawImgUrl) {
-                        page.removeAllListeners('response');
-                        resolve();
-                    }
-                }
-            });
-            // Set a timeout for the promise
-            setTimeout(() => {
-                page.removeAllListeners('response');
-                reject(new Error('Timeout waiting for captcha images'))
-            }, 20000);
-        });
-
         console.log('Clicking check-in button...');
         await page.click(checkinButtonSelector);
 
-        // Check if captcha appeared
+        // Check if captcha appeared and handle it
         try {
-            await page.waitForSelector('#captcha', { timeout: 5000 }); // Wait for captcha container to be sure
-            console.log('Captcha detected. Waiting for images...');
+            await page.waitForSelector('#captcha', { visible: true, timeout: 10000 });
+            console.log('Captcha container detected.');
+
+            // Now that the captcha is visible, wait for the image network responses
+            const [bgResponse, jigsawResponse] = await Promise.all([
+                page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.jpg'), { timeout: 15000 }),
+                page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.png'), { timeout: 15000 })
+            ]);
+
+            const bgImgUrl = bgResponse.url();
+            const jigsawImgUrl = jigsawResponse.url();
             
-            await captchaImagePromise; // Wait for URLs to be captured
-            
+            if (!bgImgUrl || !jigsawImgUrl) {
+                throw new Error('Failed to capture one or both captcha image URLs.');
+            }
+
             const captchaSolved = await solveCaptcha(page, bgImgUrl, jigsawImgUrl);
             if (!captchaSolved) {
                 console.error('Captcha solving failed. Aborting check-in.');
             }
+
         } catch (error) {
-            // This block will be entered if captcha does not appear within the timeout
-            console.log('No captcha detected or it did not appear in time.');
-            // We can remove the promise listener if it's no longer needed
-            page.removeAllListeners('response');
+            // This will catch if the captcha selector times out (i.e., no captcha)
+            // or if waiting for images times out.
+            console.log('No captcha detected or an error occurred during captcha handling.');
         }
-        // --- End of new captcha handling logic ---
 
         // 签到后通常会有弹窗或页面变化，等待一下
         await new Promise(resolve => setTimeout(resolve, 3000)); // 等待3秒，观察弹窗或提示
