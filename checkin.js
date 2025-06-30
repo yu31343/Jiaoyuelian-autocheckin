@@ -13,61 +13,42 @@ const SIGN_URL = 'https://www.natpierce.cn/pc/sign/index.html';   // 签到页
 async function solveCaptcha(page) {
     console.log('Attempting to solve captcha...');
     const captchaContainerSelector = '#captcha';
-    const sliderHandleSelector = '.yidun_slider'; // This selector might still be valid for the draggable element
-
-    let bgImgUrl = null;
-    let jigsawImgUrl = null;
+    const bgImgSelector = 'img.yidun_bg-img';
+    const jigsawImgSelector = 'img.yidun_jigsaw';
+    const sliderHandleSelector = '.yidun_slider';
 
     try {
-        // Enable request interception *before* waiting for the captcha container
-        // This ensures we don't miss any early requests
-        await page.setRequestInterception(true);
-
-        // Set up request listener to capture image URLs
-        page.on('request', interceptedRequest => {
-            const url = interceptedRequest.url();
-            if (url.includes('necaptcha.nosdn.127.net') && (url.endsWith('.jpg') || url.endsWith('.png'))) {
-                if (url.endsWith('.jpg') && !bgImgUrl) { // Assuming .jpg is background
-                    bgImgUrl = url;
-                } else if (url.endsWith('.png') && !jigsawImgUrl) { // Assuming .png is jigsaw
-                    jigsawImgUrl = url;
-                }
-            }
-            interceptedRequest.continue();
-        });
-
-        // Wait for the captcha container to appear
-        await page.waitForSelector(captchaContainerSelector, { timeout: 15000 }); // Increased timeout
+        // Wait for the captcha container and images to appear
+        await page.waitForSelector(captchaContainerSelector, { timeout: 15000 });
         console.log('Captcha container detected.');
 
-        // Explicitly wait for the image responses
-        const [bgResponse, jigsawResponse] = await Promise.all([
-            page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.jpg'), { timeout: 10000 }),
-            page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.png'), { timeout: 10000 })
-        ]);
-
-        bgImgUrl = bgResponse.url();
-        jigsawImgUrl = jigsawResponse.url();
-        console.log(`Captured background image URL: ${bgImgUrl}`);
-        console.log(`Captured jigsaw image URL: ${jigsawImgUrl}`);
-
-        // Disable request interception after capturing URLs
-        await page.setRequestInterception(false);
-
-        // Wait for the slider handle to be visible
+        await page.waitForSelector(bgImgSelector, { timeout: 10000 });
+        await page.waitForSelector(jigsawImgSelector, { timeout: 10000 });
         await page.waitForSelector(sliderHandleSelector, { timeout: 10000 });
-        console.log('Slider handle detected.');
+        console.log('Captcha images and slider handle detected.');
 
-        // Download images
-        const bgImgBuffer = await page.goto(bgImgUrl).then(response => response.buffer());
-        const jigsawImgBuffer = await page.goto(jigsawImgUrl).then(response => response.buffer());
+        // Get base64 image data from src attributes
+        const bgImgData = await page.$eval(bgImgSelector, img => img.src);
+        const jigsawImgData = await page.$eval(jigsawImgSelector, img => img.src);
+
+        // Extract base64 string (remove "data:image/jpeg;base64," prefix)
+        const base64Bg = bgImgData.split(',')[1];
+        const base64Jigsaw = jigsawImgData.split(',')[1];
+
+        if (!base64Bg || !base64Jigsaw) {
+            throw new Error('Failed to extract base64 image data from captcha elements.');
+        }
+
+        // Convert base64 to buffer
+        const bgImgBuffer = Buffer.from(base64Bg, 'base64');
+        const jigsawImgBuffer = Buffer.from(base64Jigsaw, 'base64');
 
         const bgImgPath = path.join(__dirname, 'captcha_bg.png');
         const jigsawImgPath = path.join(__dirname, 'captcha_jigsaw.png');
 
         await fs.writeFile(bgImgPath, bgImgBuffer);
         await fs.writeFile(jigsawImgPath, jigsawImgBuffer);
-        console.log('Captcha images saved.');
+        console.log('Captcha images saved from base64 data.');
 
         // Call Python script to solve captcha
         const solveResult = await new Promise((resolve, reject) => {
