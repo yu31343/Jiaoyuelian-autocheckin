@@ -45,8 +45,7 @@ async function solveCaptcha(page, bgImgUrl, jigsawImgUrl) {
         console.log('Images converted to Base64.');
 
         const solveResult = await new Promise((resolve, reject) => {
-            const command = `python solve_captcha.py "${bgBase64}" "${jigsawBase64}"`;
-            exec(command, { maxBuffer: 1024 * 1024 * 5 }, (error, stdout, stderr) => { // Increased buffer size
+            const pythonProcess = exec('python solve_captcha.py', (error, stdout, stderr) => {
                 if (error) {
                     console.error(`exec error: ${error}`);
                     return reject(error);
@@ -56,6 +55,14 @@ async function solveCaptcha(page, bgImgUrl, jigsawImgUrl) {
                 }
                 resolve(stdout.trim());
             });
+
+            // Send image data to Python script via stdin
+            const payload = JSON.stringify({
+                background: bgBase64,
+                jigsaw: jigsawBase64
+            });
+            pythonProcess.stdin.write(payload);
+            pythonProcess.stdin.end();
         });
 
         const offset = parseFloat(solveResult);

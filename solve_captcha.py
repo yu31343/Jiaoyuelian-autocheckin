@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import sys
 import base64
+import json
 from io import BytesIO
 from PIL import Image
 
@@ -71,14 +72,14 @@ def find_gap_position(bg_base64, jigsaw_base64):
     return x_offset
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        print("Usage: python solve_captcha.py <background_image_base64> <jigsaw_image_base64>")
-        sys.exit(1)
-
-    bg_base64_arg = sys.argv[1]
-    jigsaw_base64_arg = sys.argv[2]
-
     try:
+        # Read data from stdin
+        input_data = sys.stdin.read()
+        data = json.loads(input_data)
+        
+        bg_base64_arg = data['background']
+        jigsaw_base64_arg = data['jigsaw']
+
         offset = find_gap_position(bg_base64_arg, jigsaw_base64_arg)
         print(offset)
     except Exception as e:
