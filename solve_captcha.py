@@ -1,19 +1,9 @@
 import cv2
 import numpy as np
 import sys
-import requests
+import base64
 from io import BytesIO
 from PIL import Image
-import os
-import time
-
-def wait_for_file(file_path, timeout=5):
-    """Waits for a file to exist and be non-empty."""
-    start_time = time.time()
-    while not (os.path.exists(file_path) and os.path.getsize(file_path) > 0):
-        if time.time() - start_time > timeout:
-            raise FileNotFoundError(f"File not found or is empty after {timeout}s: {file_path}")
-        time.sleep(0.1)
 
 def remove_black_border(img):
     # Convert PIL Image to OpenCV format
@@ -31,19 +21,25 @@ def remove_black_border(img):
     cropped_img = img_cv[y:y+h, x:x+w]
     return cropped_img
 
-def find_gap_position(bg_img_path, jigsaw_img_path):
-    # Wait for files to be ready
-    wait_for_file(bg_img_path)
-    wait_for_file(jigsaw_img_path)
+def find_gap_position(bg_base64, jigsaw_base64):
+    # Decode Base64 strings to image data
+    try:
+        bg_data = base64.b64decode(bg_base64)
+        jigsaw_data = base64.b64decode(jigsaw_base64)
+    except Exception as e:
+        raise ValueError(f"Base64 decoding failed: {e}")
 
-    # Load images using OpenCV
-    bg_img_cv = cv2.imread(bg_img_path)
-    jigsaw_img_cv = cv2.imread(jigsaw_img_path)
+    # Convert image data to OpenCV format
+    bg_np_arr = np.frombuffer(bg_data, np.uint8)
+    jigsaw_np_arr = np.frombuffer(jigsaw_data, np.uint8)
+    
+    bg_img_cv = cv2.imdecode(bg_np_arr, cv2.IMREAD_COLOR)
+    jigsaw_img_cv = cv2.imdecode(jigsaw_np_arr, cv2.IMREAD_COLOR)
 
     if bg_img_cv is None:
-        raise IOError(f"OpenCV could not read background image at {bg_img_path}")
+        raise IOError("OpenCV could not decode background image from Base64 data.")
     if jigsaw_img_cv is None:
-        raise IOError(f"OpenCV could not read jigsaw image at {jigsaw_img_path}")
+        raise IOError("OpenCV could not decode jigsaw image from Base64 data.")
 
     # Convert to grayscale
     bg_gray = cv2.cvtColor(bg_img_cv, cv2.COLOR_BGR2GRAY)
@@ -72,14 +68,14 @@ def find_gap_position(bg_img_path, jigsaw_img_path):
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
-        print("Usage: python solve_captcha.py <background_image_path> <jigsaw_image_path>")
+        print("Usage: python solve_captcha.py <background_image_base64> <jigsaw_image_base64>")
         sys.exit(1)
 
-    bg_path = sys.argv[1]
-    jigsaw_path = sys.argv[2]
+    bg_base64_arg = sys.argv[1]
+    jigsaw_base64_arg = sys.argv[2]
 
     try:
-        offset = find_gap_position(bg_path, jigsaw_path)
+        offset = find_gap_position(bg_base64_arg, jigsaw_base64_arg)
         print(offset)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

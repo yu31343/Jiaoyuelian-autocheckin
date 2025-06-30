@@ -11,43 +11,35 @@ const LOGIN_URL = 'https://www.natpierce.cn/pc/login/login.html'; // 明确登�
 const SIGN_URL = 'https://www.natpierce.cn/pc/sign/index.html';   // 签到页
 
 async function solveCaptcha(page, bgImgUrl, jigsawImgUrl) {
-    console.log('Attempting to solve captcha with provided image URLs...');
+    console.log('Attempting to solve captcha by passing image data directly...');
     const captchaContainerSelector = '#captcha';
     const sliderHandleSelector = '.yidun_slider';
 
     try {
-        // URLs are now passed as arguments, so we don't need to intercept requests here.
-
-        // Wait for the slider handle to be visible
         await page.waitForSelector(sliderHandleSelector, { timeout: 10000 });
         console.log('Slider handle detected.');
 
-        // Download images using the provided URLs
-        console.log(`Using background image URL: ${bgImgUrl}`);
-        console.log(`Using jigsaw image URL: ${jigsawImgUrl}`);
+        console.log(`Fetching background image from: ${bgImgUrl}`);
+        console.log(`Fetching jigsaw image from: ${jigsawImgUrl}`);
 
-        // It's better to create a new page for downloading to not interfere with the current page state
         const newPage = await page.browser().newPage();
         const bgImgBuffer = await newPage.goto(bgImgUrl).then(response => response.buffer());
         const jigsawImgBuffer = await newPage.goto(jigsawImgUrl).then(response => response.buffer());
         await newPage.close();
 
-        const bgImgPath = path.join(__dirname, 'captcha_bg.png');
-        const jigsawImgPath = path.join(__dirname, 'captcha_jigsaw.png');
+        const bgBase64 = bgImgBuffer.toString('base64');
+        const jigsawBase64 = jigsawImgBuffer.toString('base64');
+        console.log('Images converted to Base64.');
 
-        await fs.writeFile(bgImgPath, bgImgBuffer);
-        await fs.writeFile(jigsawImgPath, jigsawImgBuffer);
-        console.log('Captcha images saved.');
-
-        // Call Python script to solve captcha
         const solveResult = await new Promise((resolve, reject) => {
-            exec(`python solve_captcha.py "${bgImgPath}" "${jigsawImgPath}"`, (error, stdout, stderr) => {
+            const command = `python solve_captcha.py "${bgBase64}" "${jigsawBase64}"`;
+            exec(command, { maxBuffer: 1024 * 1024 * 5 }, (error, stdout, stderr) => { // Increased buffer size
                 if (error) {
                     console.error(`exec error: ${error}`);
                     return reject(error);
                 }
                 if (stderr) {
-                    console.error(`stderr: ${stderr}`);
+                    console.error(`Python stderr: ${stderr}`);
                 }
                 resolve(stdout.trim());
             });
