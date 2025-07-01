@@ -181,28 +181,40 @@ async function autoCheckIn() {
         console.log('Clicking check-in button...');
         await page.click(checkinButtonSelector);
 
-        // Concurrently wait for either a toast message or the captcha popup
-        console.log('Waiting for either a toast message or captcha to appear...');
+        // Use a state machine approach to handle unpredictable UI
+        console.log('Assessing page state after clicking check-in...');
+        await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for UI to settle
 
-        const toastPromise = page.waitForSelector('div.layui-layer-content', { timeout: 15000 })
-            .then(async (element) => {
-                const message = await element.evaluate(el => el.innerText);
-                return { type: 'toast', message };
-            });
+        const pageState = await page.evaluate(() => {
+            const toastElement = document.querySelector('div.layui-layer-content');
+            if (toastElement) {
+                const message = toastElement.innerText;
+                if (message.includes('服务尚未到期') || message.includes('成功')) {
+                    return { status: 'toast', message: message };
+                }
+            }
+            const captchaPopup = document.querySelector('#captcha .yidun_popup');
+            // Check if the captcha popup element exists and is visible
+            if (captchaPopup && window.getComputedStyle(captchaPopup).display !== 'none') {
+                return { status: 'captcha_visible' };
+            }
+            const button = document.querySelector('#qiandao');
+            if (button && button.innerText.includes('已签到')) {
+                return { status: 'toast', message: '签到成功 (按钮状态已更新)' };
+            }
+            return { status: 'unknown' };
+        });
 
-        const captchaPromise = page.waitForSelector('#captcha .yidun_popup', { visible: true, timeout: 15000 })
-            .then(() => ({ type: 'captcha' }));
+        console.log(`Initial page state assessment: ${pageState.status}`);
 
         try {
-            const result = await Promise.race([toastPromise, captchaPromise]);
-
-            if (result.type === 'toast') {
-                console.log(`Detected toast message: "${result.message}". Ending script.`);
-                console.log(`CHECKIN_RESULT: ${result.message}`);
+            if (pageState.status === 'toast') {
+                console.log(`Detected toast message: "${pageState.message}". Ending script.`);
+                console.log(`CHECKIN_RESULT: ${pageState.message}`);
                 return; // Exit early
             }
             
-            if (result.type === 'captcha') {
+            if (pageState.status === 'captcha_visible') {
                 console.log('Captcha popup detected. Proceeding to solve...');
                 const [bgResponse, jigsawResponse] = await Promise.all([
                     page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.jpg'), { timeout: 15000 }),
@@ -220,6 +232,9 @@ async function autoCheckIn() {
                 if (!captchaSolved) {
                     console.error('Captcha solving failed. Aborting check-in.');
                 }
+            } else if (pageState.status === 'unknown') {
+                // If after 3 seconds, nothing has happened, we assume it's an issue.
+                throw new Error('Page state is unknown after 3 seconds. Neither toast nor captcha appeared.');
             }
         } catch (error) {
             // This will catch if the captcha selector times out (i.e., no captcha)
