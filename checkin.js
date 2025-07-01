@@ -79,36 +79,26 @@ async function solveCaptcha(page, bgImgUrl, jigsawImgUrl) {
         }
         console.log(`Calculated offset: ${offset}`);
 
-        // Perform human-like slider drag
+        // Perform slider drag
         const sliderHandle = await page.$(sliderHandleSelector);
-        const slider = await sliderHandle.boundingBox();
-        const startX = slider.x + slider.width / 2;
-        const startY = slider.y + slider.height / 2;
+        const sliderBoundingBox = await sliderHandle.boundingBox();
 
-        console.log(`Initiating human-like drag from (${startX}, ${startY}) with offset ${offset}`);
+        if (!sliderBoundingBox) {
+            throw new Error('Could not get bounding box for slider handle.');
+        }
+
+        const startX = sliderBoundingBox.x + sliderBoundingBox.width / 2;
+        const startY = sliderBoundingBox.y + sliderBoundingBox.height / 2;
+        const endX = startX + offset;
+        const endY = startY;
+
+        console.log(`Dragging from (${startX}, ${startY}) to (${endX}, ${endY})`);
+
         await page.mouse.move(startX, startY);
         await page.mouse.down();
-
-        // Simulate a more human-like drag
-        const steps = Math.floor(Math.random() * 10) + 20; // 20-29 steps
-        let currentX = startX;
-        for (let i = 0; i < steps; i++) {
-            const progress = (i + 1) / steps;
-            // Ease-in-out timing function for more natural acceleration
-            const easeProgress = -0.5 * (Math.cos(Math.PI * progress) - 1);
-            const newX = startX + offset * easeProgress;
-            // Add slight vertical "wobble"
-            const newY = startY + (Math.random() - 0.5) * 4; 
-            await page.mouse.move(newX, newY, { steps: 1 });
-            currentX = newX;
-            // Add a tiny random delay
-            await new Promise(r => setTimeout(r, Math.random() * 20 + 10));
-        }
-        
-        // Ensure the final position is accurate
-        await page.mouse.move(startX + offset, startY, { steps: 2 });
+        await page.mouse.move(endX, endY, { steps: 20 });
         await page.mouse.up();
-        console.log('Human-like slider drag performed.');
+        console.log('Slider drag performed.');
 
         // Add a short delay to allow the server to process the captcha and respond
         await new Promise(resolve => setTimeout(resolve, 1500));
@@ -173,87 +163,57 @@ async function autoCheckIn() {
             console.log('Already on sign-in page after login.');
         }
 
-        // Use a more robust way to find and click the button
+        // 再次等待页面元素加载，特别是签到按钮
         console.log('Waiting for sign-in button...');
-        const checkinButtonSelector = '#qiandao';
+        const checkinButtonSelector = '#qiandao'; // 根据用户提供的信息更新签到按钮选择器
         await page.waitForSelector(checkinButtonSelector, { timeout: 30000 });
-
-        // Scroll the button into view and hover over it to mimic human behavior
-        await page.evaluate(selector => {
-            document.querySelector(selector).scrollIntoView();
-        }, checkinButtonSelector);
-        await page.hover(checkinButtonSelector);
-        await new Promise(resolve => setTimeout(resolve, 500)); // Brief pause while hovering
 
         console.log('Clicking check-in button...');
         await page.click(checkinButtonSelector);
 
-        // Use a polling mechanism to robustly detect the page state
-        console.log('Polling for page state (max 20 seconds)...');
-        
-        const getPageState = async () => {
-            return await page.evaluate(() => {
-                const toastElement = document.querySelector('div.layui-layer-content');
-                if (toastElement) {
-                    const message = toastElement.innerText;
-                    if (message.includes('服务尚未到期') || message.includes('成功')) {
-                        return { status: 'toast', message: message };
-                    }
-                }
-                const captchaPopup = document.querySelector('#captcha .yidun_popup');
-                if (captchaPopup && window.getComputedStyle(captchaPopup).display !== 'none') {
-                    return { status: 'captcha_visible' };
-                }
-                const button = document.querySelector('#qiandao');
-                if (button && button.innerText.includes('已签到')) {
-                    return { status: 'toast', message: '签到成功 (按钮状态已更新)' };
-                }
-                return { status: 'pending' };
-            });
-        };
+        // Wait a moment for any immediate feedback, like a toast message
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
-        let pageState;
-        const pollingTimeout = 20000; // 20 seconds
-        const startTime = Date.now();
-        while (Date.now() - startTime < pollingTimeout) {
-            pageState = await getPageState();
-            if (pageState.status !== 'pending') {
-                console.log(`State resolved to '${pageState.status}' after ${Date.now() - startTime}ms.`);
-                break;
+        // Check for "无需签到" message first
+        const alreadyCheckedInMessage = await page.evaluate(() => {
+            const messageElement = document.querySelector('div.layui-layer-content');
+            if (messageElement && messageElement.innerText.includes('服务尚未到期')) {
+                return messageElement.innerText;
             }
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before polling again
+            return null;
+        });
+
+        if (alreadyCheckedInMessage) {
+            console.log(`Detected message: "${alreadyCheckedInMessage}". Ending script.`);
+            console.log(`CHECKIN_RESULT: ${alreadyCheckedInMessage}`);
+            return; // Exit the function early
         }
 
-        if (pageState.status === 'pending') {
-            throw new Error(`Page state remained 'pending' after ${pollingTimeout / 1000} seconds.`);
-        }
-
+        // If no such message, proceed with captcha handling
+        console.log('No "无需签到" message detected, proceeding to check for captcha.');
         try {
-            if (pageState.status === 'toast') {
-                console.log(`Detected final state: "${pageState.message}". Ending script.`);
-                console.log(`CHECKIN_RESULT: ${pageState.message}`);
-                return; // Exit early
-            }
+            // Wait for the visible popup element, not the invisible container
+            await page.waitForSelector('#captcha .yidun_popup', { visible: true, timeout: 10000 });
+            console.log('Captcha popup detected.');
+
+            // Now that the captcha is visible, wait for the image network responses
+            const [bgResponse, jigsawResponse] = await Promise.all([
+                page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.jpg'), { timeout: 15000 }),
+                page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.png'), { timeout: 15000 })
+            ]);
+
+            const bgImgUrl = bgResponse.url();
+            const jigsawImgUrl = jigsawResponse.url();
             
-            if (pageState.status === 'captcha_visible') {
-                console.log('Captcha popup detected. Proceeding to solve...');
-                const [bgResponse, jigsawResponse] = await Promise.all([
-                    page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.jpg'), { timeout: 15000 }),
-                    page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.png'), { timeout: 15000 })
-                ]);
+            if (!bgImgUrl || !jigsawImgUrl) {
+                throw new Error('Failed to capture one or both captcha image URLs.');
+            }
 
-                const bgImgUrl = bgResponse.url();
-                const jigsawImgUrl = jigsawResponse.url();
-                
-                if (!bgImgUrl || !jigsawImgUrl) {
-                    throw new Error('Failed to capture one or both captcha image URLs.');
-                }
+            const captchaSolved = await solveCaptcha(page, bgImgUrl, jigsawImgUrl);
+            if (!captchaSolved) {
+                console.error('Captcha solving failed. Aborting check-in.');
+            }
 
-                const captchaSolved = await solveCaptcha(page, bgImgUrl, jigsawImgUrl);
-                if (!captchaSolved) {
-                    console.error('Captcha solving failed. Aborting check-in.');
-                }
-            } 
         } catch (error) {
             // This will catch if the captcha selector times out (i.e., no captcha)
             // or if waiting for images times out.
