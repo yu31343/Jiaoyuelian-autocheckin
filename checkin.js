@@ -181,35 +181,49 @@ async function autoCheckIn() {
         console.log('Clicking check-in button...');
         await page.click(checkinButtonSelector);
 
-        // Use a state machine approach to handle unpredictable UI
-        console.log('Assessing page state after clicking check-in...');
-        await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for UI to settle
-
-        const pageState = await page.evaluate(() => {
-            const toastElement = document.querySelector('div.layui-layer-content');
-            if (toastElement) {
-                const message = toastElement.innerText;
-                if (message.includes('服务尚未到期') || message.includes('成功')) {
-                    return { status: 'toast', message: message };
+        // Use a polling mechanism to robustly detect the page state
+        console.log('Polling for page state (max 20 seconds)...');
+        
+        const getPageState = async () => {
+            return await page.evaluate(() => {
+                const toastElement = document.querySelector('div.layui-layer-content');
+                if (toastElement) {
+                    const message = toastElement.innerText;
+                    if (message.includes('服务尚未到期') || message.includes('成功')) {
+                        return { status: 'toast', message: message };
+                    }
                 }
-            }
-            const captchaPopup = document.querySelector('#captcha .yidun_popup');
-            // Check if the captcha popup element exists and is visible
-            if (captchaPopup && window.getComputedStyle(captchaPopup).display !== 'none') {
-                return { status: 'captcha_visible' };
-            }
-            const button = document.querySelector('#qiandao');
-            if (button && button.innerText.includes('已签到')) {
-                return { status: 'toast', message: '签到成功 (按钮状态已更新)' };
-            }
-            return { status: 'unknown' };
-        });
+                const captchaPopup = document.querySelector('#captcha .yidun_popup');
+                if (captchaPopup && window.getComputedStyle(captchaPopup).display !== 'none') {
+                    return { status: 'captcha_visible' };
+                }
+                const button = document.querySelector('#qiandao');
+                if (button && button.innerText.includes('已签到')) {
+                    return { status: 'toast', message: '签到成功 (按钮状态已更新)' };
+                }
+                return { status: 'pending' };
+            });
+        };
 
-        console.log(`Initial page state assessment: ${pageState.status}`);
+        let pageState;
+        const pollingTimeout = 20000; // 20 seconds
+        const startTime = Date.now();
+        while (Date.now() - startTime < pollingTimeout) {
+            pageState = await getPageState();
+            if (pageState.status !== 'pending') {
+                console.log(`State resolved to '${pageState.status}' after ${Date.now() - startTime}ms.`);
+                break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before polling again
+        }
+
+        if (pageState.status === 'pending') {
+            throw new Error(`Page state remained 'pending' after ${pollingTimeout / 1000} seconds.`);
+        }
 
         try {
             if (pageState.status === 'toast') {
-                console.log(`Detected toast message: "${pageState.message}". Ending script.`);
+                console.log(`Detected final state: "${pageState.message}". Ending script.`);
                 console.log(`CHECKIN_RESULT: ${pageState.message}`);
                 return; // Exit early
             }
@@ -232,10 +246,7 @@ async function autoCheckIn() {
                 if (!captchaSolved) {
                     console.error('Captcha solving failed. Aborting check-in.');
                 }
-            } else if (pageState.status === 'unknown') {
-                // If after 3 seconds, nothing has happened, we assume it's an issue.
-                throw new Error('Page state is unknown after 3 seconds. Neither toast nor captcha appeared.');
-            }
+            } 
         } catch (error) {
             // This will catch if the captcha selector times out (i.e., no captcha)
             // or if waiting for images times out.
