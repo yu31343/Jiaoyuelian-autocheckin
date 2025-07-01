@@ -181,49 +181,46 @@ async function autoCheckIn() {
         console.log('Clicking check-in button...');
         await page.click(checkinButtonSelector);
 
-        // Wait a moment for any immediate feedback, like a toast message
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Concurrently wait for either a toast message or the captcha popup
+        console.log('Waiting for either a toast message or captcha to appear...');
 
-        // Check for "无需签到" message first
-        const alreadyCheckedInMessage = await page.evaluate(() => {
-            const messageElement = document.querySelector('div.layui-layer-content');
-            if (messageElement && messageElement.innerText.includes('服务尚未到期')) {
-                return messageElement.innerText;
-            }
-            return null;
-        });
+        const toastPromise = page.waitForSelector('div.layui-layer-content', { timeout: 15000 })
+            .then(async (element) => {
+                const message = await element.evaluate(el => el.innerText);
+                return { type: 'toast', message };
+            });
 
-        if (alreadyCheckedInMessage) {
-            console.log(`Detected message: "${alreadyCheckedInMessage}". Ending script.`);
-            console.log(`CHECKIN_RESULT: ${alreadyCheckedInMessage}`);
-            return; // Exit the function early
-        }
+        const captchaPromise = page.waitForSelector('#captcha .yidun_popup', { visible: true, timeout: 15000 })
+            .then(() => ({ type: 'captcha' }));
 
-        // If no such message, proceed with captcha handling
-        console.log('No "无需签到" message detected, proceeding to check for captcha.');
         try {
-            // Wait for the visible popup element, not the invisible container
-            await page.waitForSelector('#captcha .yidun_popup', { visible: true, timeout: 10000 });
-            console.log('Captcha popup detected.');
+            const result = await Promise.race([toastPromise, captchaPromise]);
 
-            // Now that the captcha is visible, wait for the image network responses
-            const [bgResponse, jigsawResponse] = await Promise.all([
-                page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.jpg'), { timeout: 15000 }),
-                page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.png'), { timeout: 15000 })
-            ]);
-
-            const bgImgUrl = bgResponse.url();
-            const jigsawImgUrl = jigsawResponse.url();
+            if (result.type === 'toast') {
+                console.log(`Detected toast message: "${result.message}". Ending script.`);
+                console.log(`CHECKIN_RESULT: ${result.message}`);
+                return; // Exit early
+            }
             
-            if (!bgImgUrl || !jigsawImgUrl) {
-                throw new Error('Failed to capture one or both captcha image URLs.');
-            }
+            if (result.type === 'captcha') {
+                console.log('Captcha popup detected. Proceeding to solve...');
+                const [bgResponse, jigsawResponse] = await Promise.all([
+                    page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.jpg'), { timeout: 15000 }),
+                    page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.png'), { timeout: 15000 })
+                ]);
 
-            const captchaSolved = await solveCaptcha(page, bgImgUrl, jigsawImgUrl);
-            if (!captchaSolved) {
-                console.error('Captcha solving failed. Aborting check-in.');
-            }
+                const bgImgUrl = bgResponse.url();
+                const jigsawImgUrl = jigsawResponse.url();
+                
+                if (!bgImgUrl || !jigsawImgUrl) {
+                    throw new Error('Failed to capture one or both captcha image URLs.');
+                }
 
+                const captchaSolved = await solveCaptcha(page, bgImgUrl, jigsawImgUrl);
+                if (!captchaSolved) {
+                    console.error('Captcha solving failed. Aborting check-in.');
+                }
+            }
         } catch (error) {
             // This will catch if the captcha selector times out (i.e., no captcha)
             // or if waiting for images times out.
