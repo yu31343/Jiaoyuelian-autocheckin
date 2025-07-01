@@ -79,26 +79,36 @@ async function solveCaptcha(page, bgImgUrl, jigsawImgUrl) {
         }
         console.log(`Calculated offset: ${offset}`);
 
-        // Perform slider drag
+        // Perform human-like slider drag
         const sliderHandle = await page.$(sliderHandleSelector);
-        const sliderBoundingBox = await sliderHandle.boundingBox();
+        const slider = await sliderHandle.boundingBox();
+        const startX = slider.x + slider.width / 2;
+        const startY = slider.y + slider.height / 2;
 
-        if (!sliderBoundingBox) {
-            throw new Error('Could not get bounding box for slider handle.');
-        }
-
-        const startX = sliderBoundingBox.x + sliderBoundingBox.width / 2;
-        const startY = sliderBoundingBox.y + sliderBoundingBox.height / 2;
-        const endX = startX + offset;
-        const endY = startY;
-
-        console.log(`Dragging from (${startX}, ${startY}) to (${endX}, ${endY})`);
-
+        console.log(`Initiating human-like drag from (${startX}, ${startY}) with offset ${offset}`);
         await page.mouse.move(startX, startY);
         await page.mouse.down();
-        await page.mouse.move(endX, endY, { steps: 20 });
+
+        // Simulate a more human-like drag
+        const steps = Math.floor(Math.random() * 10) + 20; // 20-29 steps
+        let currentX = startX;
+        for (let i = 0; i < steps; i++) {
+            const progress = (i + 1) / steps;
+            // Ease-in-out timing function for more natural acceleration
+            const easeProgress = -0.5 * (Math.cos(Math.PI * progress) - 1);
+            const newX = startX + offset * easeProgress;
+            // Add slight vertical "wobble"
+            const newY = startY + (Math.random() - 0.5) * 4; 
+            await page.mouse.move(newX, newY, { steps: 1 });
+            currentX = newX;
+            // Add a tiny random delay
+            await new Promise(r => setTimeout(r, Math.random() * 20 + 10));
+        }
+        
+        // Ensure the final position is accurate
+        await page.mouse.move(startX + offset, startY, { steps: 2 });
         await page.mouse.up();
-        console.log('Slider drag performed.');
+        console.log('Human-like slider drag performed.');
 
         // Add a short delay to allow the server to process the captcha and respond
         await new Promise(resolve => setTimeout(resolve, 1500));
