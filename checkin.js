@@ -173,10 +173,17 @@ async function autoCheckIn() {
             console.log('Already on sign-in page after login.');
         }
 
-        // 再次等待页面元素加载，特别是签到按钮
+        // Use a more robust way to find and click the button
         console.log('Waiting for sign-in button...');
-        const checkinButtonSelector = '#qiandao'; // 根据用户提供的信息更新签到按钮选择器
+        const checkinButtonSelector = '#qiandao';
         await page.waitForSelector(checkinButtonSelector, { timeout: 30000 });
+
+        // Scroll the button into view and hover over it to mimic human behavior
+        await page.evaluate(selector => {
+            document.querySelector(selector).scrollIntoView();
+        }, checkinButtonSelector);
+        await page.hover(checkinButtonSelector);
+        await new Promise(resolve => setTimeout(resolve, 500)); // Brief pause while hovering
 
         console.log('Clicking check-in button...');
         await page.click(checkinButtonSelector);
