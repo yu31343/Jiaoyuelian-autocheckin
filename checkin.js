@@ -192,39 +192,49 @@ async function autoCheckIn() {
         // If no such message, proceed with captcha handling
         console.log('No "无需签到" message detected, proceeding to check for captcha.');
         try {
-            // Wait for the visible popup element, not the invisible container
-            await page.waitForSelector('#captcha .yidun_popup', { visible: true, timeout: 10000 });
-            console.log('Captcha popup detected.');
+            // Wait for any common captcha container that indicates a captcha is present
+            await page.waitForSelector('#captcha, .yidun, .yidun_modal__body', { visible: true, timeout: 10000 });
+            console.log('Captcha detected.');
 
-            // Now that the captcha is visible, wait for the image network responses
-            const [bgResponse, jigsawResponse] = await Promise.all([
-                page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.jpg'), { timeout: 15000 }),
-                page.waitForResponse(response => response.url().includes('necaptcha.nosdn.127.net') && response.url().endsWith('.png'), { timeout: 15000 })
-            ]);
+            // Try to get captcha image URLs from DOM first
+            let bgImgUrl = await page.evaluate(() => {
+                const el = document.querySelector('img.yidun_bg-img');
+                return el ? el.src : null;
+            });
+            let jigsawImgUrl = await page.evaluate(() => {
+                const el = document.querySelector('img.yidun_jigsaw');
+                return el ? el.src : null;
+            });
 
-            const bgImgUrl = bgResponse.url();
-            const jigsawImgUrl = jigsawResponse.url();
-            
+            // Fallback: wait for image network responses if DOM querying failed
             if (!bgImgUrl || !jigsawImgUrl) {
-                throw new Error('Failed to capture one or both captcha image URLs.');
+                console.log('DOM-based image lookup failed; attempting to capture image responses from network...');
+                const bgResp = await page.waitForResponse(response => response.request().resourceType() === 'image' && response.url().includes('necaptcha'), { timeout: 10000 }).catch(() => null);
+                const jigResp = await page.waitForResponse(response => response.request().resourceType() === 'image' && response.url().includes('necaptcha'), { timeout: 10000 }).catch(() => null);
+                if (bgResp && !bgImgUrl) bgImgUrl = bgResp.url();
+                if (jigResp && !jigsawImgUrl) jigsawImgUrl = jigResp.url();
             }
 
+            if (!bgImgUrl || !jigsawImgUrl) {
+                throw new Error('Failed to locate captcha image URLs from DOM or network.');
+            }
+
+            console.log('Captcha image URLs:', { bgImgUrl, jigsawImgUrl });
             const captchaSolved = await solveCaptcha(page, bgImgUrl, jigsawImgUrl);
             if (!captchaSolved) {
-                console.error('Captcha solving failed. Aborting check-in.');
+                console.error('Captcha solving failed. Continuing without forcing exit.');
             }
 
         } catch (error) {
-            // This will catch if the captcha selector times out (i.e., no captcha)
-            // or if waiting for images times out.
-            console.error('Error during captcha handling:', error.message);
+            // Catch selector/network timeouts or other captcha handling errors
+            console.error('Error during captcha handling:', error);
             const debugDir = path.join(__dirname, 'debug');
             await fs.mkdir(debugDir, { recursive: true });
             const screenshotPath = path.join(debugDir, 'debug_screenshot.png');
             await page.screenshot({ path: screenshotPath, fullPage: true });
             console.log(`Debug screenshot saved to ${screenshotPath}`);
-            console.log('No captcha detected or an error occurred during captcha handling. Forcing script exit.');
-            process.exit(1); // Force a failure to trigger artifact upload
+            console.log('No captcha detected or an error occurred during captcha handling. Continuing script (no forced exit).');
+            // Important: do not call process.exit(1) here; let the workflow continue so artifacts and logs can be inspected
         }
 
         console.log('Check-in process complete. Now verifying the result...');
@@ -262,8 +272,6 @@ async function autoCheckIn() {
     } catch (error) {
         console.error('An error occurred during automation:', error);
         // If an error occurs, print the error but do not exit with an error code
-        // This allows the push notification script to still run with a potential error message
-        // process.exit(1); // Do not exit with error code here, let the workflow continue
     } finally {
         if (browser) {
             await browser.close();
