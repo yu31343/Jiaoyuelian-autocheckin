@@ -176,7 +176,7 @@ async function autoCheckIn() {
 
         // Check for "无需签到" message first
         const alreadyCheckedInMessage = await page.evaluate(() => {
-            const messageElement = document.querySelector('div.layui-layer-content');
+            const messageElement = document.querySelector('div.d_hao');
             if (messageElement && messageElement.innerText.includes('服务尚未到期')) {
                 return messageElement.innerText;
             }
